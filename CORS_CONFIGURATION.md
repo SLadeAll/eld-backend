@@ -11,6 +11,8 @@ Your React frontend can request from any of these addresses:
 - `http://127.0.0.1:5174`
 - `http://localhost:8000` (same server for testing)
 - `http://127.0.0.1:8000`
+- `https://assessment-front-end-neon.vercel.app` (production frontend)
+- `https://assessment-front-end-*.vercel.app` (all Vercel preview deployments)
 
 ---
 
@@ -26,6 +28,12 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:3000",
     "http://localhost:8000",
     "http://127.0.0.1:8000",
+    "https://assessment-front-end-neon.vercel.app",
+]
+
+# Matches all Vercel preview deployments automatically
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r'^https://assessment-front-end.*\.vercel\.app$',
 ]
 
 CORS_ALLOW_CREDENTIALS = True
@@ -129,9 +137,12 @@ To add more allowed origins, edit `settings.py`:
 ```python
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
-    "https://yourdomain.com",  # Add production domain
-    "https://api.yourdomain.com",
-    "https://assessment-front-end-neon.vercel.app/"
+    "https://yourdomain.com",        # Add production domain
+    "https://assessment-front-end-neon.vercel.app",  # No trailing slash
+]
+
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r'^https://assessment-front-end.*\.vercel\.app$',  # All preview deployments
 ]
 ```
 
