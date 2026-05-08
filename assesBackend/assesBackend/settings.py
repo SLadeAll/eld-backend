@@ -151,6 +151,7 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:3000",
     "http://localhost:8000",
     "http://127.0.0.1:8000",
+    "https://assessment-front-end-neon.vercel.app",
 ] + [o for o in _extra_cors.split(',') if o]
 
 CORS_ALLOW_CREDENTIALS = True
