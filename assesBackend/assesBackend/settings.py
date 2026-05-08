@@ -154,6 +154,11 @@ CORS_ALLOWED_ORIGINS = [
     "https://assessment-front-end-neon.vercel.app",
 ] + [o for o in _extra_cors.split(',') if o]
 
+# Allow all Vercel preview deployments for the frontend project
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r'^https://assessment-front-end.*\.vercel\.app$',
+]
+
 CORS_ALLOW_CREDENTIALS = True
 
 CORS_ALLOW_HEADERS = [
