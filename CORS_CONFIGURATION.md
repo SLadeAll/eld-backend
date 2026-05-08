@@ -131,6 +131,7 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "https://yourdomain.com",  # Add production domain
     "https://api.yourdomain.com",
+    "https://assessment-front-end-neon.vercel.app/"
 ]
 ```
 
