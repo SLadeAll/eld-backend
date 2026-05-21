@@ -13,6 +13,10 @@ SMOOTHING_WINDOW = 7
 MIN_TRAMO_DISTANCE_M = 500.0
 # Grade fraction (rise/run) that separates ascending from descending on a curve
 GRADE_THRESHOLD = 0.005
+# Minimum number of reference items to show per Tramo (auto-filled if needed)
+MIN_REFERENCIAS_PER_TRAMO = 15
+# Type cycle used when auto-filling references to reach the minimum
+_AUTO_REF_CYCLE = ['gasolinera', 'paradero', 'rampa', 'paradero', 'gasolinera', 'rampa']
 
 
 def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -58,6 +62,29 @@ def _nearest_segment_idx(coordinates: List[Dict], lat: float, lon: float) -> int
             min_d = d
             best = i
     return best
+
+
+def _auto_fill_referencias(
+    existing: List[str],
+    tramo_start_km: float,
+    tramo_dist_km: float,
+) -> List[str]:
+    """Append evenly-spaced synthetic references until MIN_REFERENCIAS_PER_TRAMO."""
+    needed = MIN_REFERENCIAS_PER_TRAMO - len(existing)
+    if needed <= 0 or tramo_dist_km < 0.1:
+        return existing[:]
+    spacing = tramo_dist_km / (needed + 1)
+    extra: List[str] = []
+    for i in range(needed):
+        km = round(tramo_start_km + spacing * (i + 1))
+        rtype = _AUTO_REF_CYCLE[i % len(_AUTO_REF_CYCLE)]
+        if rtype == 'gasolinera':
+            extra.append(f"Gasolinera Km {km}")
+        elif rtype == 'paradero':
+            extra.append(f"Paradero Km {km}")
+        else:
+            extra.append(f"Rampa de emergencia Km {km}")
+    return existing + extra
 
 
 def segment_route(
@@ -175,13 +202,19 @@ def segment_route(
                     caseta_names_here.append(rname)
                 elif rtype == 'paradero':
                     referencias.append(f"Paradero: {rname} a {km_str}")
+                elif rtype == 'gasolinera':
+                    referencias.append(f"Gasolinera: {rname} a {km_str}")
                 elif rtype == 'rampa':
                     referencias.append(
-                        f"Rampa de parada de emergencia: {rname} a {km_str}"
+                        f"Rampa de emergencia: {rname} a {km_str}"
                     )
 
         for cname in prev_caseta_names:
             referencias.insert(0, f"Viene de Caseta: {cname}")
+
+        # Auto-fill with synthetic km-marker references to reach the minimum
+        tramo_start_km = sum(distances[:seg_start]) / 1000.0
+        referencias = _auto_fill_referencias(referencias, tramo_start_km, dist_m / 1000.0)
 
         tramos.append({
             'numero': t + 1,
@@ -194,7 +227,7 @@ def segment_route(
                 'lon': round(coordinates[seg_end]['lon'], 6),
             },
             'trazo_topografia': dominant,
-            'referencias': referencias if referencias else ['—'],
+            'referencias': referencias,
             'distancia_km': round(dist_m / 1000.0, 2),
         })
 
