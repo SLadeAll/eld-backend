@@ -178,3 +178,30 @@ class DailyLogSerializer(serializers.ModelSerializer):
             'notes', 'entries', 'created_at', 'updated_at'
         ]
         read_only_fields = ['created_at', 'updated_at']
+
+
+# ── Análisis de Ruta — Territorio Mexicano ────────────────────────────────────
+
+class CoordinateSerializer(serializers.Serializer):
+    lat = serializers.FloatField()
+    lon = serializers.FloatField()
+    elevation = serializers.FloatField(required=False, allow_null=True)
+
+
+class ReferencePointSerializer(serializers.Serializer):
+    lat = serializers.FloatField()
+    lon = serializers.FloatField()
+    type = serializers.ChoiceField(choices=['caseta', 'paradero', 'rampa'])
+    name = serializers.CharField(max_length=255)
+
+
+class RouteAnalysisRequestSerializer(serializers.Serializer):
+    coordinates = CoordinateSerializer(many=True)
+    references = ReferencePointSerializer(many=True, required=False, default=list)
+
+    def validate_coordinates(self, value):
+        if len(value) < 2:
+            raise serializers.ValidationError(
+                "Se requieren al menos 2 coordenadas para analizar la ruta."
+            )
+        return value

@@ -1,8 +1,9 @@
 from rest_framework.routers import DefaultRouter
 from producto.api.views import (
     ProductoViewSet, UserRegistrationViewSet, UserLoginViewSet, UserProfileViewSet,
-    DriverViewSet, TripViewSet, 
-    StopViewSet, DailyLogViewSet, LogEntryViewSet
+    DriverViewSet, TripViewSet,
+    StopViewSet, DailyLogViewSet, LogEntryViewSet,
+    RouteAnalysisViewSet,
 )
 
 router = DefaultRouter()
@@ -15,5 +16,6 @@ router.register(r'trips', TripViewSet, basename='trip')
 router.register(r'stops', StopViewSet, basename='stop')
 router.register(r'daily-logs', DailyLogViewSet, basename='daily-log')
 router.register(r'log-entries', LogEntryViewSet, basename='log-entry')
+router.register(r'route-analysis', RouteAnalysisViewSet, basename='route-analysis')
 
 urlpatterns = router.urls
