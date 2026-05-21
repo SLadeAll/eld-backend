@@ -2,17 +2,22 @@ import math
 from typing import Dict, List, Optional
 
 TRAZO_RECTA = 'Recta'
+TRAZO_RECTA_ASCENDENTE = 'Recta Ascendente'
+TRAZO_RECTA_DESCENDENTE = 'Recta Descendente'
 TRAZO_CURVA_ASCENDENTE = 'Curva Ascendente'
 TRAZO_CURVA_DESCENDENTE = 'Curva Descendente'
 
-# Average smoothed bearing change (deg) per segment that signals a curve
-BEARING_CURVE_THRESHOLD = 3.0
+# Bearing-change threshold (degrees, after smoothing) that signals a curve.
+# Raised to 10° because sample coordinates are spaced ~40 km apart — at that
+# density even gently curving highways produce bearing changes > 3°.
+BEARING_CURVE_THRESHOLD = 10.0
 # Smoothing window size (segments) for both curvature and grade signals
-SMOOTHING_WINDOW = 7
+SMOOTHING_WINDOW = 5
 # Minimum Tramo length; prevents micro-segments from over-segmentation
 MIN_TRAMO_DISTANCE_M = 500.0
-# Grade fraction (rise/run) that separates ascending from descending on a curve
-GRADE_THRESHOLD = 0.005
+# Grade fraction (rise/run) that classifies a segment as ascending/descending.
+# Lowered to 0.3 % so gentle plateau grades are still captured.
+GRADE_THRESHOLD = 0.003
 # Minimum number of reference items to show per Tramo (auto-filled if needed)
 MIN_REFERENCIAS_PER_TRAMO = 15
 # Type cycle used when auto-filling references to reach the minimum
@@ -135,13 +140,18 @@ def segment_route(
 
     # ── 4. Per-segment classification ─────────────────────────────────────
     def _classify(curve_val: float, grade_val: float) -> str:
-        if curve_val <= BEARING_CURVE_THRESHOLD:
+        is_curve = curve_val > BEARING_CURVE_THRESHOLD
+        is_ascending = grade_val > GRADE_THRESHOLD
+        is_descending = grade_val < -GRADE_THRESHOLD
+
+        if is_curve:
+            return TRAZO_CURVA_DESCENDENTE if is_descending else TRAZO_CURVA_ASCENDENTE
+        else:
+            if is_ascending:
+                return TRAZO_RECTA_ASCENDENTE
+            if is_descending:
+                return TRAZO_RECTA_DESCENDENTE
             return TRAZO_RECTA
-        # For curves without elevation data the grade is 0, which falls into
-        # the ascending bucket (grade >= -threshold) as a safe default.
-        if grade_val >= -GRADE_THRESHOLD:
-            return TRAZO_CURVA_ASCENDENTE
-        return TRAZO_CURVA_DESCENDENTE
 
     classifications = [
         _classify(smoothed_curve[i], smoothed_grade[i])
