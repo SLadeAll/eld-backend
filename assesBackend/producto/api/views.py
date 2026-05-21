@@ -13,8 +13,10 @@ from producto.api.serilizers import (
     productoSerializer, DriverSerializer, TripSerializer,
     StopSerializer, DailyLogSerializer, LogEntrySerializer,
     UserRegistrationSerializer, UserProfileSerializer,
-    UserLoginSerializer, UserLoginResponseSerializer
+    UserLoginSerializer, UserLoginResponseSerializer,
+    RouteAnalysisRequestSerializer,
 )
+from producto.route_analysis import segment_route
 
 
 class ProductoViewSet(viewsets.ModelViewSet):
@@ -288,3 +290,24 @@ class LogEntryViewSet(viewsets.ModelViewSet):
         if daily_log_id:
             return LogEntry.objects.filter(daily_log_id=daily_log_id).order_by('start_time')
         return LogEntry.objects.all()
+
+
+class RouteAnalysisViewSet(viewsets.ViewSet):
+    """Segmenta una ruta en tramos para análisis de territorio mexicano."""
+    permission_classes = [AllowAny]
+
+    @action(detail=False, methods=['post'], permission_classes=[AllowAny])
+    def analyze(self, request):
+        """
+        Recibe coordenadas de ruta y referencias viales, devuelve los tramos
+        segmentados con trazo/topografía y puntos de referencia.
+        """
+        serializer = RouteAnalysisRequestSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        coordinates = serializer.validated_data['coordinates']
+        references = serializer.validated_data.get('references', [])
+
+        result = segment_route(coordinates, references)
+        return Response(result, status=status.HTTP_200_OK)

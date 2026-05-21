@@ -1,0 +1,207 @@
+import math
+from typing import Dict, List, Optional
+
+TRAZO_RECTA = 'Recta'
+TRAZO_CURVA_ASCENDENTE = 'Curva Ascendente'
+TRAZO_CURVA_DESCENDENTE = 'Curva Descendente'
+
+# Average smoothed bearing change (deg) per segment that signals a curve
+BEARING_CURVE_THRESHOLD = 3.0
+# Smoothing window size (segments) for both curvature and grade signals
+SMOOTHING_WINDOW = 7
+# Minimum Tramo length; prevents micro-segments from over-segmentation
+MIN_TRAMO_DISTANCE_M = 500.0
+# Grade fraction (rise/run) that separates ascending from descending on a curve
+GRADE_THRESHOLD = 0.005
+
+
+def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    R = 6_371_000.0
+    rad = math.pi / 180.0
+    dlat = (lat2 - lat1) * rad
+    dlon = (lon2 - lon1) * rad
+    a = (math.sin(dlat / 2) ** 2
+         + math.cos(lat1 * rad) * math.cos(lat2 * rad) * math.sin(dlon / 2) ** 2)
+    return R * 2.0 * math.atan2(math.sqrt(a), math.sqrt(1.0 - a))
+
+
+def _bearing(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    rad = math.pi / 180.0
+    lat1r, lon1r = lat1 * rad, lon1 * rad
+    lat2r, lon2r = lat2 * rad, lon2 * rad
+    dlon = lon2r - lon1r
+    x = math.sin(dlon) * math.cos(lat2r)
+    y = math.cos(lat1r) * math.sin(lat2r) - math.sin(lat1r) * math.cos(lat2r) * math.cos(dlon)
+    return (math.degrees(math.atan2(x, y)) + 360.0) % 360.0
+
+
+def _angular_diff(b1: float, b2: float) -> float:
+    return (b2 - b1 + 180.0) % 360.0 - 180.0
+
+
+def _smooth(values: List[float], window: int) -> List[float]:
+    half = window // 2
+    result = []
+    for i in range(len(values)):
+        lo = max(0, i - half)
+        hi = min(len(values), i + half + 1)
+        result.append(sum(values[lo:hi]) / (hi - lo))
+    return result
+
+
+def _nearest_segment_idx(coordinates: List[Dict], lat: float, lon: float) -> int:
+    min_d = float('inf')
+    best = 0
+    for i in range(len(coordinates) - 1):
+        d = _haversine_m(lat, lon, coordinates[i]['lat'], coordinates[i]['lon'])
+        if d < min_d:
+            min_d = d
+            best = i
+    return best
+
+
+def segment_route(
+    coordinates: List[Dict],
+    references: Optional[List[Dict]] = None,
+) -> Dict:
+    """
+    Segment a route into Tramos for Mexican territory road analysis.
+
+    coordinates: list of {'lat': float, 'lon': float, 'elevation': float|None}
+    references:  list of {'lat': float, 'lon': float,
+                           'type': 'caseta'|'paradero'|'rampa', 'name': str}
+
+    Returns {'tramos': [...], 'total_tramos': int, 'distancia_total_km': float}
+    """
+    if references is None:
+        references = []
+
+    n = len(coordinates)
+    if n < 2:
+        return {'tramos': [], 'total_tramos': 0, 'distancia_total_km': 0.0}
+
+    # ── 1. Per-segment bearings and distances ─────────────────────────────
+    bearings: List[float] = []
+    distances: List[float] = []
+    for i in range(n - 1):
+        c1, c2 = coordinates[i], coordinates[i + 1]
+        bearings.append(_bearing(c1['lat'], c1['lon'], c2['lat'], c2['lon']))
+        distances.append(_haversine_m(c1['lat'], c1['lon'], c2['lat'], c2['lon']))
+
+    # ── 2. Curvature signal: absolute bearing change between segments ──────
+    bearing_changes: List[float] = [0.0]
+    for i in range(1, len(bearings)):
+        bearing_changes.append(abs(_angular_diff(bearings[i - 1], bearings[i])))
+    smoothed_curve = _smooth(bearing_changes, SMOOTHING_WINDOW)
+
+    # ── 3. Elevation grade ────────────────────────────────────────────────
+    has_elevation = any(c.get('elevation') is not None for c in coordinates)
+    grades: List[float] = []
+    for i in range(n - 1):
+        if has_elevation and distances[i] > 0.0:
+            e1 = float(coordinates[i].get('elevation') or 0.0)
+            e2 = float(coordinates[i + 1].get('elevation') or 0.0)
+            grades.append((e2 - e1) / distances[i])
+        else:
+            grades.append(0.0)
+    smoothed_grade = _smooth(grades, SMOOTHING_WINDOW)
+
+    # ── 4. Per-segment classification ─────────────────────────────────────
+    def _classify(curve_val: float, grade_val: float) -> str:
+        if curve_val <= BEARING_CURVE_THRESHOLD:
+            return TRAZO_RECTA
+        # For curves without elevation data the grade is 0, which falls into
+        # the ascending bucket (grade >= -threshold) as a safe default.
+        if grade_val >= -GRADE_THRESHOLD:
+            return TRAZO_CURVA_ASCENDENTE
+        return TRAZO_CURVA_DESCENDENTE
+
+    classifications = [
+        _classify(smoothed_curve[i], smoothed_grade[i])
+        for i in range(len(bearings))
+    ]
+
+    # ── 5. Map references to nearest segment indices ──────────────────────
+    ref_by_seg: Dict[int, List[Dict]] = {}
+    caseta_segs: set = set()
+    for ref in references:
+        idx = _nearest_segment_idx(coordinates, ref['lat'], ref['lon'])
+        ref_by_seg.setdefault(idx, []).append(ref)
+        if ref.get('type') == 'caseta':
+            caseta_segs.add(idx)
+
+    # ── 6. Tramo boundaries ───────────────────────────────────────────────
+    # A boundary is placed when:
+    #   a) classification changes AND accumulated distance >= MIN_TRAMO_DISTANCE_M
+    #   b) a caseta falls on the segment (toll booths always split a Tramo)
+    boundaries = [0]
+    dist_since_last = 0.0
+    for i in range(1, len(classifications)):
+        dist_since_last += distances[i - 1]
+        is_caseta = i in caseta_segs
+        is_change = classifications[i] != classifications[i - 1]
+        if (is_change or is_caseta) and dist_since_last >= MIN_TRAMO_DISTANCE_M:
+            boundaries.append(i)
+            dist_since_last = 0.0
+    boundaries.append(n - 1)
+
+    # ── 7. Build Tramo objects ────────────────────────────────────────────
+    tramos: List[Dict] = []
+    prev_caseta_names: List[str] = []
+
+    for t in range(len(boundaries) - 1):
+        seg_start = boundaries[t]
+        seg_end = boundaries[t + 1]
+
+        seg_classes = classifications[seg_start:seg_end]
+        dominant = (
+            max(set(seg_classes), key=seg_classes.count)
+            if seg_classes else TRAZO_RECTA
+        )
+
+        dist_m = sum(distances[seg_start:seg_end])
+
+        referencias: List[str] = []
+        caseta_names_here: List[str] = []
+
+        for seg_idx in range(seg_start, seg_end):
+            for ref in ref_by_seg.get(seg_idx, []):
+                dist_from_start_km = sum(distances[seg_start:seg_idx]) / 1000.0
+                rtype = ref.get('type', '')
+                rname = ref.get('name', 'Punto de referencia')
+                km_str = f"{dist_from_start_km:.1f} km del inicio del tramo"
+                if rtype == 'caseta':
+                    referencias.append(f"Caseta de cobro: {rname} a {km_str}")
+                    caseta_names_here.append(rname)
+                elif rtype == 'paradero':
+                    referencias.append(f"Paradero: {rname} a {km_str}")
+                elif rtype == 'rampa':
+                    referencias.append(
+                        f"Rampa de parada de emergencia: {rname} a {km_str}"
+                    )
+
+        for cname in prev_caseta_names:
+            referencias.insert(0, f"Viene de Caseta: {cname}")
+
+        tramos.append({
+            'numero': t + 1,
+            'posicion_inicial': {
+                'lat': round(coordinates[seg_start]['lat'], 6),
+                'lon': round(coordinates[seg_start]['lon'], 6),
+            },
+            'posicion_final': {
+                'lat': round(coordinates[seg_end]['lat'], 6),
+                'lon': round(coordinates[seg_end]['lon'], 6),
+            },
+            'trazo_topografia': dominant,
+            'referencias': referencias if referencias else ['—'],
+            'distancia_km': round(dist_m / 1000.0, 2),
+        })
+
+        prev_caseta_names = caseta_names_here
+
+    return {
+        'tramos': tramos,
+        'total_tramos': len(tramos),
+        'distancia_total_km': round(sum(distances) / 1000.0, 2),
+    }
