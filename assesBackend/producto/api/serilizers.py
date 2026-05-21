@@ -191,7 +191,7 @@ class CoordinateSerializer(serializers.Serializer):
 class ReferencePointSerializer(serializers.Serializer):
     lat = serializers.FloatField()
     lon = serializers.FloatField()
-    type = serializers.ChoiceField(choices=['caseta', 'paradero', 'rampa'])
+    type = serializers.ChoiceField(choices=['caseta', 'paradero', 'rampa', 'gasolinera'])
     name = serializers.CharField(max_length=255)
 
 
