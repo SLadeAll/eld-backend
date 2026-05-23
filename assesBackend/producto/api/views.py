@@ -306,8 +306,9 @@ class RouteAnalysisViewSet(viewsets.ViewSet):
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        coordinates = serializer.validated_data['coordinates']
-        references = serializer.validated_data.get('references', [])
+        coordinates    = serializer.validated_data['coordinates']
+        references     = serializer.validated_data.get('references', [])
+        vehicle_config = serializer.validated_data.get('vehicle_config', {})
 
-        result = segment_route(coordinates, references)
+        result = segment_route(coordinates, references, vehicle_config)
         return Response(result, status=status.HTTP_200_OK)

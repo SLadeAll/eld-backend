@@ -1,6 +1,8 @@
 import math
 from typing import Dict, List, Optional
 
+from producto.risk_analysis import generate_risk_analysis, FULL_LOAD, HALF_LOAD
+
 TRAZO_RECTA = 'Recta'
 TRAZO_RECTA_ASCENDENTE = 'Recta Ascendente'
 TRAZO_RECTA_DESCENDENTE = 'Recta Descendente'
@@ -95,18 +97,32 @@ def _auto_fill_referencias(
 def segment_route(
     coordinates: List[Dict],
     references: Optional[List[Dict]] = None,
+    vehicle_config: Optional[Dict] = None,
 ) -> Dict:
     """
     Segment a route into Tramos for Mexican territory road analysis.
 
-    coordinates: list of {'lat': float, 'lon': float, 'elevation': float|None}
-    references:  list of {'lat': float, 'lon': float,
-                           'type': 'caseta'|'paradero'|'rampa', 'name': str}
+    coordinates:    list of {'lat': float, 'lon': float, 'elevation': float|None}
+    references:     list of {'lat': float, 'lon': float,
+                              'type': 'caseta'|'paradero'|'rampa', 'name': str}
+    vehicle_config: optional dict:
+                    {
+                      'vehicle_type': 'double_trailer',   # currently only supported type
+                      'first_delivery_coord_index': int    # index into coordinates where
+                                                           # first delivery occurs; tramos
+                                                           # starting before this index are
+                                                           # FULL_LOAD, at/after are HALF_LOAD
+                    }
 
     Returns {'tramos': [...], 'total_tramos': int, 'distancia_total_km': float}
+    Each tramo includes a 'risk_analysis' block with 6 structured sections.
     """
     if references is None:
         references = []
+    if vehicle_config is None:
+        vehicle_config = {}
+
+    first_delivery_idx = vehicle_config.get('first_delivery_coord_index')
 
     n = len(coordinates)
     if n < 2:
@@ -226,7 +242,13 @@ def segment_route(
         tramo_start_km = sum(distances[:seg_start]) / 1000.0
         referencias = _auto_fill_referencias(referencias, tramo_start_km, dist_m / 1000.0)
 
-        tramos.append({
+        # Determine load state for this tramo based on vehicle_config
+        if first_delivery_idx is not None and seg_start >= first_delivery_idx:
+            load_state = HALF_LOAD
+        else:
+            load_state = FULL_LOAD
+
+        tramo_dict = {
             'numero': t + 1,
             'posicion_inicial': {
                 'lat': round(coordinates[seg_start]['lat'], 6),
@@ -239,7 +261,10 @@ def segment_route(
             'trazo_topografia': dominant,
             'referencias': referencias,
             'distancia_km': round(dist_m / 1000.0, 2),
-        })
+        }
+
+        tramo_dict['risk_analysis'] = generate_risk_analysis(tramo_dict, load_state)
+        tramos.append(tramo_dict)
 
         prev_caseta_names = caseta_names_here
 

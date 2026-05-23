@@ -195,9 +195,26 @@ class ReferencePointSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=255)
 
 
+class VehicleConfigSerializer(serializers.Serializer):
+    vehicle_type = serializers.ChoiceField(
+        choices=['double_trailer'],
+        default='double_trailer',
+    )
+    first_delivery_coord_index = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=0,
+        help_text=(
+            "Índice (0-based) de la coordenada donde ocurre la primera entrega. "
+            "Los tramos cuyo seg_start >= este índice se marcan como Media Carga."
+        ),
+    )
+
+
 class RouteAnalysisRequestSerializer(serializers.Serializer):
     coordinates = CoordinateSerializer(many=True)
     references = ReferencePointSerializer(many=True, required=False, default=list)
+    vehicle_config = VehicleConfigSerializer(required=False, default=dict)
 
     def validate_coordinates(self, value):
         if len(value) < 2:
