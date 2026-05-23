@@ -1,342 +1,385 @@
 """
-Structured 6-section risk analysis for Mexican highway tramos.
+PROCESO risk analysis — 7-column operational security table for each tramo.
 Vehicle: double-trailer truck (camión de doble remolque).
-Load states: Carga Completa (departure → first delivery)
-             Media Carga   (after first delivery → final destination)
+Load states: Carga Completa | Media Carga.
+
+Output per tramo:
+  {
+    'load_state':   str,
+    'load_state_flag': bool,
+    'tabla_proceso': [ [#, Area, Dinamica, Amenazas, Vigilancia, Restriccion, Intervencion], ... ],
+    'os_profile':   str,
+  }
 """
 
 FULL_LOAD = 'Carga Completa'
 HALF_LOAD = 'Media Carga'
 
-
-def _risk(name, desc, mag):
-    return {'riesgo': name, 'descripcion': desc, 'magnitud': mag}
+_HALF_LOAD_FLAG_TRAZOS = {'Recta Descendente', 'Curva Ascendente', 'Curva Descendente'}
 
 
-def _impact(dimension, descripcion):
-    return {'dimension': dimension, 'descripcion': descripcion}
+def _r(num, area, dinamica, amenazas, vigilancia, restriccion, intervencion):
+    return [str(num), area, dinamica, amenazas, vigilancia, restriccion, intervencion]
 
 
-def _detect(indicador, herramienta):
-    return {'indicador': indicador, 'herramienta': herramienta}
-
-
-def _has(referencias, keyword):
-    return any(keyword.lower() in r.lower() for r in referencias)
-
-
-# ── Recta ──────────────────────────────────────────────────────────────────────
+# ── RECTA ──────────────────────────────────────────────────────────────────────
 
 def _recta(load_state, has_rampa, has_caseta, dist_km):
     is_full = load_state == FULL_LOAD
-    long_seg = dist_km > 100
-    vel_max = '85 km/h' if is_full else '90 km/h'
+    vel = '85 km/h' if is_full else '90 km/h'
+    carga_nota = 'carga completa al máximo peso' if is_full else 'media carga con distribución asimétrica entre remolques'
 
-    return {
-        'objetivos_vulnerabilidades': {
-            'objetivos': [
-                'Integridad física del conductor y tripulación',
-                'Carga transportada: ' + ('totalidad del cargamento (doble remolque al 100 %)' if is_full else 'carga residual (50 % del cargamento original; un remolque entregado)'),
-                'Unidad de doble remolque — motor, transmisión, neumáticos, frenos',
-                'Infraestructura vial y terceros usuarios de la carretera',
-            ],
-            'vulnerabilidades': [
-                'Fatiga y microsueño por monotonía del trazo recto' + (' en tramo largo (> 100 km)' if long_seg else ''),
-                'Exceso de velocidad facilitado por visibilidad y trazo despejado',
-                ('Alta inercia de frenado con doble remolque al máximo peso: distancias de parada muy superiores a un vehículo convencional' if is_full
-                 else 'Distribución asimétrica de peso entre remolques tras primera entrega: comportamiento diferente al esperado en frenadas'),
-                'Reventón de neumático por temperatura acumulada en pavimento caliente',
-                'Vehículos lentos o con avería sin señalización adecuada en vía rápida',
-            ],
-        },
-        'identificacion_riesgos': [
-            _risk('Fatiga / microsueño', 'Monotonía del trazo recto favorece la somnolencia, especialmente en conducción nocturna o en tramos superiores a 100 km sin parada', 'Alto' if long_seg else 'Medio'),
-            _risk('Exceso de velocidad', 'El trazo recto y ' + ('la alta inercia con carga completa pueden dar falsa sensación de seguridad' if is_full else 'la reducción de peso tras la primera entrega pueden llevar al conductor a acelerar por encima del límite seguro'), 'Medio'),
-            _risk('Reventón de llanta', 'El peso ' + ('máximo del convoy' if is_full else 'residual combinado con distribución asimétrica') + ' genera tensión acumulada en neumáticos; pavimento caliente agrava el riesgo', 'Alto' if is_full else 'Medio'),
-            _risk('Colisión por alcance', 'Distancia de frenado extendida por masa del convoy; riesgo ante vehículo detenido o de baja velocidad', 'Alto' if is_full else 'Medio'),
-            _risk('Maniobra incorrecta de cambio de carril', 'La longitud del doble remolque dificulta evaluar espacios seguros; punto ciego extendido', 'Medio'),
-        ],
-        'perspectiva_impacto': [
-            _impact('Humano', 'Lesiones o fatalidades del conductor y terceros ante colisión o salida de vía'),
-            _impact('Económico', 'Pérdida o daño de ' + ('la totalidad de la carga' if is_full else 'la carga residual') + '; daño a la unidad y costos de rescate, grúa y reparación vial'),
-            _impact('Operacional', 'Retraso de entrega, activación de protocolos de emergencia, posible pérdida comercial con el cliente'),
-            _impact('Reputacional', 'Accidentes de camión en carretera federal tienen alta cobertura mediática; afectación a la imagen de la empresa operadora'),
-            _impact('Ambiental', 'Derrame de mercancía o combustible puede contaminar cunetas, arroyos o acuíferos cercanos al tramo'),
-        ],
-        'escenarios_ocurrencia': [
-            'Conductor somnoliento en tramo nocturno abandona el carril; el segundo remolque impacta el guardarrail y vuelca',
-            'Reventón de llanta trasera del primer remolque provoca derrape y pérdida de control del convoy a alta velocidad',
-            'Vehículo averiado sin triángulos reflectores en carretera sin iluminación; choque por alcance del camión',
-            'Conductor ' + ('con carga completa subestima la distancia de frenado y colisiona con vehículo que frena de emergencia' if is_full else 'acelera tras la primera entrega confiando en el menor peso; supera el límite seguro y no puede detenerse a tiempo'),
-            'Lluvia repentina reduce el coeficiente de fricción; distancia de frenado se duplica con el peso del convoy',
-        ],
-        'elementos_deteccion': [
-            _detect('Velocidad del convoy', 'Telemática GPS en tiempo real; alertas automáticas al superar umbral de ' + vel_max),
-            _detect('Horas de conducción acumuladas', 'Sistema ELD / registrador de jornada; alerta a operador de flota al aproximarse al límite'),
-            _detect('Presión y temperatura de neumáticos', 'Sensor TPMS con alarma en cabina; revisión visual en paradas programadas'),
-            _detect('Distancia de seguimiento', 'Radar de proximidad frontal (si equipado) o protocolo de mínimo 4 segundos de distancia'),
-            _detect('Condición climatológica', 'App meteorológica integrada o reporte de central de operaciones cada 2 horas'),
-        ],
-        'previsiones_proteccion': [
-            'Límite operacional de velocidad: ' + vel_max + ' en recta (respetar señalización oficial)',
-            ('Descanso obligatorio de 30 min en paradero cada 4 h de conducción continua' + (' — paradero disponible en este tramo' if has_caseta else ' — planificar parada en el siguiente punto de servicio')) ,
-            'Revisión pre-tramo: presión de neumáticos, nivel de frenos, luces y cinturón de seguridad',
-            'Protocolo de cambio de carril: señal mínima 5 s antes, verificar punto ciego de ambos remolques por espejo convexo',
-            'En caso de avería: encender luces de emergencia, colocar triángulos a 50 m y 100 m, notificar a base operativa de inmediato',
-            'Número de emergencia SCT / Policía Federal y de la empresa en tablero o dispositivo del conductor',
-        ],
-    }
+    rows = [
+        _r(1,
+           'Vía de circulación',
+           f'Circulación continua a {vel} en carril derecho; tráfico mixto en carril izquierdo; el convoy ({carga_nota}) ocupa una longitud superior a 22 m',
+           'Cierre súbito de carril por vehículo adelantador; colisión por alcance desde atrás; vehículo fantasma sin luces en tramo nocturno',
+           'Monitorear espejos retrovisores cada 30 s; verificar distancia de seguimiento; identificar vehículos que sigan al convoy a distancia constante inusual',
+           f'Mantener distancia mínima de 4 s al vehículo de adelante; señalizar todo cambio de carril con 5 s de anticipación; velocidad máxima operacional {vel}',
+           'Si vehículo agresivo detrás: activar luces de advertencia + reducción gradual de velocidad + reporte a base; si persiste: detención en hombro + contacto con Policía Federal',
+        ),
+        _r(2,
+           'Hombro / arcén lateral',
+           'Zona de detención de emergencia no planificada; presencia ocasional de vehículos varados y peatones; OS realiza inspección visual del vehículo en paradas',
+           'Abordaje no autorizado al convoy detenido; robo de carga en varada provocada; obstáculos en hombro que dañen neumáticos del convoy',
+           'Inspeccionar estado del hombro antes de detenerse; identificar visualmente a toda persona que se aproxime al convoy; vigilar perímetro a 20 m de radio',
+           'Prohibir acercamiento de personas no identificadas; mantener puertas de cabina cerradas en toda parada no programada; no abrir remolques sin autorización de base',
+           'Si acercamiento sospechoso: activar alarma + comunicar a base + arrancar si es seguro; si imposible arrancar: bloquear acceso a remolques y esperar respuesta policial',
+        ),
+        _r(3,
+           'Zona de adelantamiento',
+           f'Maniobras de rebase frecuentes; vehículos rápidos superan al convoy con diferencia de velocidad de 40–60 km/h; carril izquierdo activo en tramo recto de {dist_km:.0f} km',
+           'Colisión lateral en rebase; corte intempestivo ante el convoy (cut-in) para obligarlo a frenar; intento de detención forzada por vehículo que rebasa y frena abruptamente',
+           'Observar señales de intención de rebase en espejos laterales; comunicar al conductor toda aproximación lateral; registrar placa y descripción de vehículos con comportamiento irregular',
+           'No ejecutar rebases del convoy salvo necesidad operativa extrema; proteger el espacio lateral mediante posición centrada en carril; señalizar activamente la longitud del convoy con luces',
+           'Si vehículo intenta cierre forzado: bocina sostenida + luces de emergencia + reducción gradual; reportar placa y descripción a base y Policía Federal inmediatamente',
+        ),
+        _r(4,
+           'Caseta de cobro' if has_caseta else 'Punto de control / acceso restringido',
+           'Reducción obligatoria de velocidad a 20 km/h; detención de 30–60 s; interacción directa con operadores y vehículos contiguos detenidos en el carril',
+           'Robo aprovechando la detención obligatoria; instrucción de desvío simulando ser autoridad; colocación de objetos en la carga o ruedas durante la detención',
+           'Verificar credenciales del personal si solicita inspección; observar vehículos estacionados en proximidad; revisar que nada sea colocado en el convoy durante la detención',
+           'No aceptar instrucciones de desvío de persona no identificada; verificar con base cualquier ruta alternativa; mantener ventanas cerradas salvo espacio mínimo para cobro',
+           'Si amenaza en caseta: no detenerse, solicitar paso de emergencia, notificar base + Policía Federal; documentar con cámara todo lo ocurrido',
+        ),
+        _r(5,
+           'Paradero / área de descanso',
+           'Detención planificada de 30–90 min; conductor descansa; ' + ('carga completa estacionada' if is_full else 'carga residual estacionada') + '; tráfico mixto de camioneros y transeúntes en el área',
+           'Robo de carga durante parada prolongada; vigilancia hostil del convoy para planificar asalto posterior; adulteración o sabotaje de la mercancía',
+           'OS permanece en alerta activa durante descanso del conductor; inspeccionar perímetro del vehículo cada 15 min; identificar vehículos estacionados en el área por tiempo prolongado',
+           'Acceso al convoy restringido a personal autorizado únicamente; asegurar todos los puntos de acceso a los remolques; no divulgar carga, destino ni itinerario a terceros',
+           'Si manipulación de carga detectada: notificar base inmediatamente, no mover el vehículo, documentar con fotografías, esperar inspección de autoridades',
+        ),
+        _r(6,
+           'Sistema de comunicaciones / telemetría',
+           'Transmisión continua de posición GPS y datos telemétricos a base; reportes periódicos del OS cada 30 min; posible pérdida de señal en zonas rurales del tramo',
+           'Jamming / bloqueo intencional de señal GPS o celular; pérdida de comunicación en zona sin cobertura; falla del dispositivo de rastreo principal',
+           'Verificar señal GPS y comunicación cada 30 min; confirmar recepción de reportes en base; detectar anomalías en señal o discrepancias en posición reportada',
+           'No cambiar de ruta si se pierde comunicación; mantener ruta programada y reportar en la primera parada autorizada',
+           'Si comunicación perdida: protocolo zona muerta (seguir ruta, primera parada segura, dispositivo de emergencia alternativo); si jamming confirmado: tratar como amenaza activa y notificar a primera autoridad disponible',
+        ),
+    ]
+
+    os_profile = (
+        f'El Oficial de Seguridad (OS) actúa como escolta de seguridad activo en este tramo rectilíneo. '
+        f'PUEDE: monitorear el entorno y reportar amenazas en tiempo real; instruir al conductor en maniobras defensivas (reducción de velocidad, cambio de carril, detención en hombro); '
+        f'documentar incidentes mediante cámara y reporte escrito; coordinar respuesta policial a través de la base de operaciones. '
+        f'NO PUEDE: realizar intervenciones fuera del vehículo mientras está en movimiento; detener o interceptar vehículos de terceros en carretera federal; '
+        f'emplear medidas de fuerza fuera de los protocolos de defensa propia autorizados; abandonar el convoy bajo ninguna circunstancia durante la operación. '
+        f'Condición de carga: {load_state}. Perfil de valor del objetivo: {"alto — carga completa representa mayor atractivo para actores hostiles" if is_full else "medio — media carga reduce el valor pero la asimetría de peso introduce vulnerabilidad operativa"}.'
+    )
+
+    return {'tabla_proceso': rows, 'os_profile': os_profile}
 
 
-# ── Recta Ascendente ───────────────────────────────────────────────────────────
+# ── RECTA ASCENDENTE ───────────────────────────────────────────────────────────
 
 def _recta_ascendente(load_state, has_rampa, has_caseta, dist_km):
     is_full = load_state == FULL_LOAD
     vel_asc = '40–50 km/h' if is_full else '50–60 km/h'
+    carga_nota = 'peso máximo — el motor trabaja al límite de su capacidad térmica' if is_full else 'media carga — menor demanda al motor, pero distribución asimétrica entre ejes'
 
-    return {
-        'objetivos_vulnerabilidades': {
-            'objetivos': [
-                'Motor, transmisión y sistema de enfriamiento del tracto bajo carga sostenida en rampa',
-                'Seguridad del conductor y convoy ante posible parada en pleno ascenso',
-                'Carga: ' + ('doble remolque al máximo; peso empuja hacia atrás en ascenso' if is_full else 'remolque único con carga residual; distribución de peso alterada'),
-                'Vehículos que circulan detrás del convoy y pueden ser sorprendidos por su lentitud',
-            ],
-            'vulnerabilidades': [
-                'Sobrecarga térmica del motor bajo ' + ('peso máximo del convoy en ascenso prolongado' if is_full else 'peso reducido pero ascenso continuo; riesgo menor pero presente'),
-                'El convoy reduce drásticamente su velocidad, exponiendo a colisiones por alcance desde atrás',
-                'Selección incorrecta de marcha puede provocar calado o pérdida de impulso en pleno ascenso',
-                'Mayor consumo de combustible en ascenso; riesgo de quedar sin diesel si el nivel es marginal',
-                'Fatiga muscular del conductor por manejo constante de marchas y tensión en volante durante el ascenso',
-            ],
-        },
-        'identificacion_riesgos': [
-            _risk('Sobrecalentamiento del motor', 'El ascenso continuo con ' + ('carga máxima' if is_full else 'media carga') + ' eleva la temperatura del motor por encima del rango seguro', 'Alto' if is_full else 'Medio'),
-            _risk('Calado / pérdida de marcha en ascenso', 'Error de selección de engranaje detiene el convoy en pleno ascenso, creando obstáculo peligroso para el tráfico', 'Alto' if is_full else 'Medio'),
-            _risk('Colisión por alcance desde atrás', 'El convoy reduce su velocidad significativamente; vehículo rápido desde atrás puede no anticiparlo', 'Alto'),
-            _risk('Avería mecánica en ascenso', 'Fallo de correa, turbo o bomba de agua en rampa sin espacio lateral de detención seguro', 'Crítico' if is_full else 'Alto'),
-            _risk('Agotamiento de combustible', 'El ascenso bajo ' + ('carga completa' if is_full else 'media carga') + ' acelera el consumo; riesgo de quedar varado sin diesel', 'Medio'),
-        ],
-        'perspectiva_impacto': [
-            _impact('Humano', 'Conductor varado en carretera de ascenso con espacio reducido; riesgo de impacto por tráfico descendente o ascendente'),
-            _impact('Económico', 'Avería en ascenso implica grúa pesada especializada, daño al motor, pérdida de tiempo de ' + ('totalidad' if is_full else 'media') + ' de la carga'),
-            _impact('Operacional', 'Bloqueo parcial o total de carril en tramo de ascenso; afectación al tráfico regional hasta despeje'),
-            _impact('Reputacional', 'Avería visible en carretera federal refuerza percepción negativa sobre el estado de mantenimiento de la flota'),
-            _impact('Ambiental', 'Fuga de refrigerante o aceite en carretera de montaña; riesgo de escorrentía hacia barrancas'),
-        ],
-        'escenarios_ocurrencia': [
-            'Motor se sobrecalienta a mitad del ascenso bajo ' + ('carga completa y temperatura ambiente > 35 °C' if is_full else 'media carga en condiciones de verano') + '; conductor debe detener en hombro angosto',
-            'Conductor selecciona marcha incorrecta; el convoy cala y queda perpendicular al carril de ascenso',
-            'Vehículo que sigue al convoy choca por alcance al no anticipar la reducción de velocidad del camión en la rampa',
-            'Turbocompresor falla en ascenso; camión pierde potencia progresivamente y queda varado en zona sin salida',
-            'Nivel de combustible insuficiente no detectado antes del ascenso; convoy se detiene en plena rampa',
-        ],
-        'elementos_deteccion': [
-            _detect('Temperatura del motor', 'Indicador de temperatura en tablero; alarma sonora/visual si supera umbral crítico (generalmente > 110 °C)'),
-            _detect('Presión de aceite', 'Sensor de presión de aceite; descenso anormal indica desgaste o fuga inminente'),
-            _detect('Relación RPM / velocidad', 'Tacómetro y velocímetro: relación anormal indica marcha incorrecta o pérdida de potencia'),
-            _detect('Nivel de combustible', 'Indicador de combustible; verificar en la gasolinera del tramo anterior antes del ascenso'),
-            _detect('Temperatura ambiente', 'Sensor ambiental del vehículo; a > 35 °C el riesgo de sobrecalentamiento es mayor'),
-        ],
-        'previsiones_proteccion': [
-            'Verificar refrigerante, aceite y combustible en gasolinera previa al ascenso' + (' — gasolinera disponible en tramo anterior' if has_caseta else ''),
-            'Seleccionar la marcha correcta ANTES de iniciar el ascenso; no intentar cambiar de marcha en plena rampa',
-            'Si el motor comienza a sobrecalentar: reducir velocidad, activar calefacción al máximo para disipar calor, detenerse en el primer punto seguro',
-            'Si el convoy se detiene: freno de estacionamiento, calzar ruedas, luces de emergencia, llamar a base inmediatamente',
-            'Velocidad de ascenso recomendada: ' + vel_asc + ' (ajustar según señalización oficial)',
-            'Activar luces de advertencia si la velocidad cae por debajo del flujo normal para alertar al tráfico detrás',
-        ],
-    }
+    rows = [
+        _r(1,
+           'Carril de ascenso lento',
+           f'El convoy ({carga_nota}) circula a {vel_asc} en el carril derecho de ascenso; tráfico más rápido lo supera; exposición prolongada en la vía por baja velocidad',
+           'Colisión por alcance desde vehículo que no anticipa la baja velocidad del convoy; intentos de rebase peligroso en zona de visibilidad reducida; objeto en carril que obliga maniobra brusca',
+           'Monitorear espejos traseros continuamente durante el ascenso; comunicar al conductor todo vehículo rápido aproximándose desde atrás; reportar condición del tráfico a la base cada 10 min en ascensos mayores a 10 km',
+           f'Activar luces de advertencia traseras durante el ascenso; mantener {vel_asc} sin intentar acelerar para alcanzar el flujo del tráfico rápido; no ejecutar rebases propios en ascenso',
+           'Si vehículo choca desde atrás: asegurar al conductor, encender luces de emergencia, colocar triángulos, notificar base y servicios de emergencia (911)',
+        ),
+        _r(2,
+           'Hombro de emergencia en rampa',
+           'Zona de detención limitada: el hombro en rampa es angosto y con pendiente; detención aquí implica riesgo de movimiento involuntario del convoy',
+           'Deslizamiento del convoy por pendiente si falla el freno de estacionamiento; impacto lateral de vehículo que sale del carril; acceso difícil para servicios de emergencia',
+           'Verificar la disponibilidad y anchura del hombro antes de iniciar el ascenso; identificar los puntos de detención seguros a lo largo del tramo; confirmar que el freno de mano funcione correctamente',
+           'Detenerse SOLO si es absolutamente necesario; aplicar freno de estacionamiento Y calzar ruedas; activar luces de emergencia de inmediato; no permitir que nadie baje del vehículo hacia el carril',
+           'Si parada de emergencia: freno de mano + cuñas + triángulos + llamada a base + 911; si el convoy comienza a deslizarse: freno de servicio + bocina + comunicar a tráfico',
+        ),
+        _r(3,
+           'Sistema mecánico del tractor (motor / transmisión / enfriamiento)',
+           f'El motor trabaja a máxima demanda térmica bajo {"peso máximo del convoy" if is_full else "media carga en ascenso sostenido"}; temperatura del refrigerante, aceite y frenos aumenta progresivamente',
+           'Sobrecalentamiento del motor; falla del turbocompresor; rotura de correa de transmisión; pérdida de potencia que deja el convoy varado en plena rampa',
+           'Monitorear temperatura del motor en tablero cada 5 min durante el ascenso; observar humo o vapor bajo la capó; verificar nivel de combustible antes del ascenso',
+           'Si temperatura supera el umbral de alerta: reducir velocidad, activar calefacción al máximo para disipar calor; detenerse en el primer punto seguro del hombro',
+           'Si motor se detiene en rampa: freno + cuñas + luces de emergencia + notificar base + solicitar grúa pesada; no intentar rearrancar si hay humo o vapor; esperar inspección técnica',
+        ),
+        _r(4,
+           'Zona posterior al convoy (tráfico detrás)',
+           'El convoy en ascenso lento genera una cola de vehículos detrás; conductores impacientes intentan adelantar en zonas prohibidas; situación de tensión en carretera de montaña',
+           'Conductor impaciente que adelanta en curva ciega del ascenso; vehículo que golpea el segundo remolque por distracción; convoy que bloquea carretera si se detiene',
+           'Monitorear la longitud de la cola detrás mediante cámara trasera o espejo; reportar a la base si la cola supera 10 vehículos (señal de posible incidente)',
+           'Mantener velocidad constante para no interrumpir el flujo detrás; señalizar claramente la presencia del convoy con luces; no acelerar abruptamente en zonas de ascenso',
+           'Si se forma cola extensa y algún vehículo intenta rebase peligroso: activar señales de advertencia + reporte a base + si hay radio de comunicación con autoridades viales, activarla',
+        ),
+        _r(5,
+           'Zona de servicios previa al ascenso (gasolinera / paradero)',
+           'Detención planificada de 10–20 min antes del ascenso para revisión mecánica y reabastecimiento; interacción con personal de la estación',
+           'Robo de combustible durante la carga; manipulación del vehículo durante la revisión; seguimiento del convoy por actores que observan el reabastecimiento',
+           'Supervisar el proceso de abastecimiento de combustible sin apartar la vista del convoy; verificar que el personal de la estación sea personal regular del establecimiento',
+           'No permitir que personas ajenas toquen el motor, ruedas o carga durante la parada; mantener al menos una persona con vista al convoy en todo momento',
+           'Si se detecta manipulación durante el abastecimiento: interrumpir la operación, notificar base, solicitar inspección antes de continuar el ascenso',
+        ),
+        _r(6,
+           'Comunicaciones en zona de posible cobertura reducida',
+           'Los tramos de ascenso en sierra frecuentemente tienen cobertura celular intermitente; el convoy puede quedar sin comunicación por períodos de 5–20 min en zonas de ladera',
+           'Pérdida de comunicación en el momento de mayor riesgo mecánico; imposibilidad de reportar incidente a base; falta de coordinación si ocurre avería',
+           'Verificar la cobertura disponible al inicio del ascenso; establecer protocolo de check-in cada 10 min; confirmar el número de emergencia alternativo (radio, satélite) antes del tramo',
+           'Si se pierde señal: mantener ruta, no detenerse salvo emergencia mecánica, reestablecer comunicación en la primera zona con cobertura disponible',
+           'Si la avería ocurre en zona sin cobertura: encender luces de emergencia, enviar señal visual a vehículos que pasen (brazos, triángulos), esperar ayuda; si hay radio de emergencia, activarlo',
+        ),
+    ]
+
+    os_profile = (
+        f'El OS actúa como escolta de seguridad y monitor mecánico-operativo en este tramo de ascenso. '
+        f'PUEDE: ordenar detención del convoy ante señales confirmadas de fallo mecánico; coordinar apoyo técnico en rampa a través de la base; '
+        f'mantener comunicación continua con la base durante el ascenso; instruir al conductor en el uso correcto de marchas y velocidad de ascenso. '
+        f'NO PUEDE: efectuar reparaciones mecánicas en la vía; forzar la continuación del ascenso si hay riesgo mecánico confirmado; '
+        f'abandonar el convoy para buscar ayuda dejando al conductor solo en la rampa. '
+        f'Condición de carga: {load_state} ({("máxima demanda al motor; mayor probabilidad de fallo mecánico" if is_full else "menor demanda mecánica; mayor agilidad de detención si es necesario")}).'
+    )
+
+    return {'tabla_proceso': rows, 'os_profile': os_profile}
 
 
-# ── Recta Descendente ──────────────────────────────────────────────────────────
+# ── RECTA DESCENDENTE ──────────────────────────────────────────────────────────
 
 def _recta_descendente(load_state, has_rampa, has_caseta, dist_km):
     is_full = load_state == FULL_LOAD
     vel_desc = '40 km/h' if is_full else '50 km/h'
+    carga_desc = 'carga completa: máxima inercia gravitacional en el eje longitudinal' if is_full else 'media carga: menor inercia pero posible distribución asimétrica que genera torsión en frenos'
 
-    return {
-        'objetivos_vulnerabilidades': {
-            'objetivos': [
-                'Sistema de frenos del tracto y ambos remolques (máxima demanda en descenso)',
-                'Control de velocidad del convoy ante la fuerza gravitacional acumulada',
-                'Estabilidad de la carga: ' + ('peso máximo que genera mayor inercia hacia adelante en frenadas' if is_full else 'carga asimétrica entre remolques tras primera entrega; comportamiento impredecible en frenadas bruscas'),
-                'Usuarios en la vía por debajo (incorporaciones, cruces, paraderos)',
-            ],
-            'vulnerabilidades': [
-                'Sobrecalentamiento de frenos (fading) bajo ' + ('carga completa: peso máximo en descenso prolongado comprometiendo la capacidad de frenado' if is_full else 'media carga: frenos menos solicitados pero asimetría entre ejes puede provocar frenada irregular'),
-                'Desplazamiento de carga hacia el frente del remolque durante frenadas en descenso',
-                'Temperatura de neumáticos elevada por fricción continua en descenso; riesgo de reventón',
-                'Rampa de emergencia ' + ('disponible en este tramo' if has_rampa else 'no identificada en este tramo: el frenado correcto es la única salvaguarda'),
-                'Visibilidad reducida ante curvas al final del descenso recto',
-            ],
-        },
-        'identificacion_riesgos': [
-            _risk('Fallo de frenos (fading)', 'Calentamiento excesivo de frenos en descenso prolongado con ' + ('carga completa: máxima solicitación del sistema de frenado' if is_full else 'media carga asimétrica: posible sobrecarga de los frenos de un eje'), 'Crítico' if is_full else 'Alto'),
-            _risk('Camión desbocado (runaway)', 'Pérdida total de frenado; el convoy acelera sin control hasta el final del descenso o la primera curva', 'Crítico'),
-            _risk('Desplazamiento de carga', 'Frenadas bruscas desplazan la carga hacia el frente; inestabilidad del segundo remolque ' + ('con carga asimétrica' if not is_full else 'bajo máximo peso'), 'Alto'),
-            _risk('Vuelco por velocidad excesiva', 'El convoy alcanza velocidad crítica en el descenso; vuelco ante cualquier irregularidad del pavimento o curva', 'Crítico' if is_full else 'Alto'),
-            _risk('Reventón de llanta en descenso', 'Temperatura de neumáticos elevada por fricción continua; un reventón a alta velocidad en descenso es altamente desestabilizador', 'Alto'),
-        ],
-        'perspectiva_impacto': [
-            _impact('Humano', 'Camión desbocado puede causar víctimas múltiples en incorporaciones, casetas o zonas urbanas al pie del descenso; el conductor puede quedar atrapado'),
-            _impact('Económico', 'Destrucción total de la unidad y ' + ('la totalidad de la carga' if is_full else 'la carga residual') + '; responsabilidad civil por daños a infraestructura; costos de limpieza de vía'),
-            _impact('Operacional', 'Cierre de vía por horas o días; desvío de tránsito regional; pérdida total del viaje y la carga'),
-            _impact('Reputacional', 'Accidente de camión desbocado: el evento de mayor visibilidad mediática en transporte de carga; consecuencias legales y regulatorias graves'),
-            _impact('Ambiental', 'Derrame de combustible, aceite y mercancía; riesgo de incendio; daño al ecosistema de ladera o barranca'),
-        ],
-        'escenarios_ocurrencia': [
-            'Frenos sobrecalentados tras descenso previo no detectados; conductor entra al tramo con frenos comprometidos y los pierde a mitad del descenso',
-            'Conductor no activa el freno motor/retarder; depende exclusivamente de frenos de servicio que se fatigan en 5–8 km',
-            'Reventón de llanta trasera del primer remolque en pleno descenso desestabiliza el segundo remolque que gira lateralmente',
-            'Rampa de emergencia no identificada por el conductor; el convoy la sobrepasa a alta velocidad sin poder usarla',
-            'Lluvia inesperada reduce la adherencia al pavimento en el descenso; la distancia de frenado se duplica o triplica',
-        ],
-        'elementos_deteccion': [
-            _detect('Temperatura de frenos', 'Sensor térmico de frenos (si equipado); indicios visuales: humo en ruedas, olor a quemado'),
-            _detect('Velocidad del convoy en descenso', 'Telemática GPS; alerta crítica si supera ' + vel_desc + ' en este tipo de tramo'),
-            _detect('Señalización y ubicación de rampas', 'Conocer la posición exacta de la rampa ANTES de iniciar el descenso' + (' — rampa identificada en este tramo' if has_rampa else ' — sin rampa en este tramo: velocidad es la única salvaguarda')),
-            _detect('Comportamiento del segundo remolque', 'Espejo retrovisor convexo y cámara trasera (si disponible); cualquier oscilación lateral es alarma inmediata'),
-            _detect('Presión del sistema de frenos de aire', 'Manómetro de presión de aire; caída por debajo del umbral mínimo indica fuga o fallo'),
-        ],
-        'previsiones_proteccion': [
-            'OBLIGATORIO: Activar freno motor/retarder ANTES de iniciar el descenso; no esperar a que el convoy gane velocidad',
-            'Velocidad máxima en descenso: ' + vel_desc + ' (respetar señalización); usar reloj de tablero para confirmar velocidad constante',
-            'Verificar temperatura de frenos y presión de llantas en paradero o caseta antes del descenso' + (' — punto disponible en este tramo' if has_caseta else ' — detención preventiva antes del descenso si hay duda'),
-            'Memorizar la ubicación exacta de la rampa de emergencia antes de iniciar' + (' — rampa identificada en este tramo' if has_rampa else ' — solicitar información a central de operaciones sobre rampas en tramos vecinos'),
-            'PROHIBIDO rebasar en el descenso; mantener carril derecho en todo momento',
-            'En caso de pérdida de frenos: usar rampa de emergencia; si no está disponible, fricción guiada contra guardarrail lado montaña como último recurso',
-            'Verificar y tensar la sujeción de la carga antes del inicio del descenso para evitar desplazamiento en frenadas',
-            'Comunicar inicio y fin del descenso a la base; si no hay reporte en tiempo estimado, activar protocolo de búsqueda',
-        ],
-    }
+    rows = [
+        _r(1,
+           'Carril de descenso',
+           f'El convoy ({carga_desc}) desciende a velocidad controlada de máximo {vel_desc}; la gravedad actúa continuamente sobre el sistema de frenado; tráfico de vehículos más rápidos a la zaga',
+           'Exceso de velocidad involuntario si el conductor no usa freno motor; colisión por alcance si el convoy reduce bruscamente; maniobra intempestiva del conductor al sentir pérdida de frenos',
+           f'Verificar que el freno motor esté activo ANTES de iniciar el descenso; monitorear el velocímetro cada 60 s para confirmar que se mantiene bajo {vel_desc}; observar señales de humo en ruedas (fading)',
+           f'Velocidad máxima de descenso: {vel_desc}; freno motor/retarder activo obligatorio; no permitir que la velocidad aumente aunque el tráfico circule más rápido',
+           'Si velocidad supera el umbral: activar freno de servicio en pulsos cortos (no mantener presionado); si fading confirmado (olor, humo): dirigir al conductor a la rampa de emergencia; notificar base y 911',
+        ),
+        _r(2,
+           'Sistema de frenos (frenos de servicio, motor y retarder)',
+           'Los frenos trabajan continuamente durante el descenso; la temperatura de los discos o tambores aumenta progresivamente; ' + ('con carga completa la energía térmica generada es máxima' if is_full else 'con media carga la energía es menor pero la distribución entre ejes puede ser irregular'),
+           'Fading (pérdida de efectividad) de frenos por sobrecalentamiento; rotura de manguera de frenos de aire; pérdida total de frenado (camión desbocado)',
+           'Observar temperatura de frenos si el vehículo tiene sensor; detectar olor a quemado o humo en ruedas traseras; verificar el comportamiento del convoy ante pulsos de freno',
+           'Detener el convoy en el primer punto seguro si hay señales de sobrecalentamiento de frenos; no continuar el descenso con frenos calientes sin tiempo de enfriamiento (mínimo 10–15 min)',
+           'Si pérdida total de frenos: dirigir conductor a RAMPA DE EMERGENCIA' + (' (disponible en este tramo)' if has_rampa else ' (no identificada — el guardarrail lado montaña es el último recurso)') + '; notificar base y 911 simultáneamente',
+        ),
+        _r(3,
+           'Rampa de emergencia' + (' (disponible en este tramo)' if has_rampa else ' (no identificada en este tramo)'),
+           'La rampa de emergencia es el dispositivo de último recurso para detener un camión desbocado; su efectividad depende de que el conductor la conozca y la use correctamente',
+           'Conductor que desconoce la ubicación exacta de la rampa y la sobrepasa; rampa obstruida por otro vehículo; conductor que no toma la decisión de usar la rampa a tiempo',
+           'Confirmar la posición kilométrica de la rampa ANTES de iniciar el descenso' + (' — rampa presente en este tramo' if has_rampa else ' — sin rampa en este tramo: reportar este dato a base previo al descenso') + '; comunicar al conductor su ubicación',
+           'La decisión de usar la rampa es del conductor; el OS DEBE apoyar esa decisión; no contradecir al conductor si decide usar la rampa aunque parezca innecesario',
+           'Si convoy se dirige a rampa: comunicar a base la situación; al detenerse en rampa: luces de emergencia + triángulos + notificar 911 para asistencia de recuperación',
+        ),
+        _r(4,
+           'Hombro lateral en descenso',
+           'El hombro en descenso puede ser angosto o inexistente; una detención aquí implica riesgo de movimiento por pendiente y exposición al tráfico',
+           'Deslizamiento del convoy si falla el freno de estacionamiento en pendiente; impacto lateral desde carril de descenso; imposibilidad de detenerse con seguridad si el hombro es inexistente',
+           'Verificar la disponibilidad del hombro al inicio del descenso; identificar puntos de detención seguros en el tramo; evaluar si el hombro tiene anchura suficiente para el convoy',
+           'Detenerse en hombro de descenso SOLO como último recurso si no hay rampa de emergencia; aplicar freno de mano + cuñas + señalización inmediata',
+           'Si forzado a detenerse en hombro de descenso: freno + cuñas SIEMPRE en los dos ejes del último remolque; triángulos a 100 m y 200 m hacia arriba del descenso; notificar base + 911',
+        ),
+        _r(5,
+           'Zona de incorporación / pie del descenso',
+           'Al final del descenso, el convoy se incorpora al flujo vehicular normal con alta velocidad residual; posible cambio brusco de carretera a zona urbana o de tráfico denso',
+           'Exceso de velocidad residual al llegar al pie del descenso; incorporación a flujo denso sin espacio suficiente; semáforo o stop no anticipado por el conductor',
+           'Comunicar al conductor la proximidad del pie del descenso y los cambios de condición vial; verificar en el mapa la presencia de incorporaciones, semáforos o cruces al final del tramo',
+           'Reducir velocidad progresivamente en el último tercio del descenso; verificar condición de frenos (temperatura) antes de la incorporación al tráfico normal',
+           'Si el convoy llega al pie del descenso a velocidad excesiva y no puede detenerse: activar bocina continua para alertar al tráfico, mantener carril, reportar a base y 911',
+        ),
+        _r(6,
+           'Área de carga — remolques en descenso',
+           f'La carga ({("completa" if is_full else "residual — distribución asimétrica")}) ejerce presión hacia el frente durante el descenso y las frenadas; el segundo remolque puede oscilar o empujar al primero',
+           'Desplazamiento de carga hacia el frente del remolque en frenadas bruscas; oscilación del segundo remolque (efecto bamboleo o jackknife parcial); ruptura de cinchos de sujeción por tensión acumulada',
+           'Observar mediante espejo o cámara trasera el comportamiento del segundo remolque durante el descenso; verificar que no haya sonidos inusuales de la carga en movimiento',
+           'Verificar y tensar la sujeción de la carga ANTES del inicio del descenso; reportar cualquier sonido de carga en movimiento y detenerse para inspección',
+           'Si se detecta bamboleo del segundo remolque: instruir al conductor a reducir velocidad gradualmente SIN frenar bruscamente (agrava el bamboleo); detenerse en el primer punto seguro para inspección de la carga',
+        ),
+    ]
+
+    os_profile = (
+        f'El OS opera en el escenario de mayor riesgo de frenado del viaje. '
+        f'PUEDE: verificar la activación del freno motor antes del descenso; comunicar la posición de la rampa de emergencia al conductor; '
+        f'ordenar detención preventiva ante señales de fading (olor, humo, pérdida de respuesta); coordinar asistencia de emergencia desde la base. '
+        f'NO PUEDE: impedir que el conductor tome la rampa de emergencia si lo decide; contradecir las decisiones del conductor en situación de pérdida inminente de frenos; '
+        f'controlar mecánicamente el vehículo desde su posición. '
+        f'Condición de carga: {load_state}. '
+        f'{"Carga completa = máxima inercia en descenso = máxima exigencia al sistema de frenos. Perfil de riesgo: CRÍTICO." if is_full else "Media carga = menor inercia pero distribución asimétrica puede generar frenado desigual por eje. Perfil de riesgo: ALTO."}'
+    )
+
+    return {'tabla_proceso': rows, 'os_profile': os_profile}
 
 
-# ── Curva Ascendente ───────────────────────────────────────────────────────────
+# ── CURVA ASCENDENTE ───────────────────────────────────────────────────────────
 
 def _curva_ascendente(load_state, has_rampa, has_caseta, dist_km):
     is_full = load_state == FULL_LOAD
     vel_curva = '35–45 km/h' if is_full else '45–55 km/h'
+    cg_nota = 'centro de gravedad en su posición más alta — riesgo de vuelco maximizado' if is_full else 'centro de gravedad desplazado por asimetría de carga — comportamiento en curva impredecible'
 
-    return {
-        'objetivos_vulnerabilidades': {
-            'objetivos': [
-                'Estabilidad lateral del convoy: centro de gravedad elevado por doble remolque cargado en curva + gradiente',
-                'Tracción de los ejes motrices sobre superficie inclinada y curva simultáneamente',
-                'Carga: ' + ('peso máximo con alto centro de gravedad; amplifica el momento volcador' if is_full else 'media carga con posible distribución desigual entre remolques; comportamiento asimétrico en curva'),
-                'Vehículos en sentido contrario y terceros en el área de la curva',
-            ],
-            'vulnerabilidades': [
-                'Centro de gravedad elevado con ' + ('carga completa' if is_full else 'carga asimétrica en media carga') + ' amplifica el riesgo de vuelco lateral en curva',
-                'Fuerza centrífuga y gradiente de ascenso actúan simultáneamente sobre el convoy en la misma dirección de desequilibrio',
-                'Visibilidad reducida en curva cerrada; conductor no anticipa obstáculos en el carril contrario',
-                'El radio de giro del doble remolque es notablemente mayor que el del tracto: el segundo remolque puede invadir el carril contrario',
-                'Superficie húmeda, gravilla o pavimento deteriorado reduce la adherencia en curva + gradiente',
-            ],
-        },
-        'identificacion_riesgos': [
-            _risk('Vuelco lateral en curva ascendente', 'Combinación de fuerza centrífuga + gradiente bajo ' + ('carga completa' if is_full else 'media carga asimétrica') + ' puede superar el umbral de vuelco a velocidades relativamente bajas', 'Crítico' if is_full else 'Alto'),
-            _risk('Pérdida de tracción en curva', 'Los ejes motrices pierden adherencia en la curva + gradiente, especialmente con superficie húmeda o suelta; el convoy puede deslizarse', 'Alto'),
-            _risk('Invasión del carril contrario', 'El radio de giro extendido del doble remolque lleva al segundo remolque a cruzar la línea central en curvas cerradas', 'Alto'),
-            _risk('Colisión frontal con vehículo en sentido contrario', 'Visibilidad reducida en curva cerrada; un vehículo en sentido contrario que también ocupa el centro puede provocar colisión frontal', 'Crítico'),
-            _risk('Calado del motor en curva ascendente', 'Si el conductor intenta cambiar de marcha dentro de la curva para mantener impulso, el convoy puede calarse y quedar varado en posición oblicua', 'Medio'),
-        ],
-        'perspectiva_impacto': [
-            _impact('Humano', 'Vuelco lateral en zona de curva puede atrapar al conductor y a pasajeros de vehículos en sentido contrario; evacuación difícil en zona de montaña'),
-            _impact('Económico', 'Volcadura destruye unidad y ' + ('totalidad de la carga' if is_full else 'carga residual') + '; daño a infraestructura de la curva (guardarrail, señalización, talud)'),
-            _impact('Operacional', 'Cierre de carretera en zona de curva con acceso difícil para equipos de rescate; restablecimiento muy lento'),
-            _impact('Reputacional', 'Volcadura de camión de doble remolque en carretera federal o de montaña: máxima exposición mediática; investigación de la SCT'),
-            _impact('Ambiental', 'Derrame de carga o combustible en zona de curva con posible escorrentía hacia alcantarillas o zonas naturales en ladera'),
-        ],
-        'escenarios_ocurrencia': [
-            'Conductor entra a la curva ascendente sin reducir la velocidad suficientemente con ' + ('doble remolque al máximo' if is_full else 'media carga y remolque posterior desbalanceado') + '; el segundo remolque vuelca lateralmente',
-            'Superficie con lluvia reciente; los neumáticos pierden adherencia en la curva ascendente; el tracto subvira y sale del carril',
-            'Conductor intenta mantener impulso cambiando de marcha dentro de la curva; el convoy cala y queda perpendicular al carril bloqueando la vía',
-            'Vehículo en sentido contrario invade el carril por error propio; colisión frontal en curva sin visibilidad anticipada',
-            'Grava o arena en el asfalto de la curva exterior; llanta trasera del primer remolque pierde tracción y el convoy se desplaza al carril contrario',
-        ],
-        'elementos_deteccion': [
-            _detect('Señalización de curva y velocidad recomendada', 'Señales viales de chevrones y velocidad máxima en curva; comunicar al conductor antes del tramo'),
-            _detect('Sistema de alerta de vuelco / RSS', 'Sistema electrónico de estabilidad del vehículo (RSS/ESC, si equipado); alerta antes de alcanzar el umbral de vuelco'),
-            _detect('Velocidad de entrada a la curva', 'Telemática GPS; comparar velocidad real vs velocidad recomendada de la curva; alerta si la supera'),
-            _detect('Condición de la superficie', 'Reporte climatológico previo; observación visual del pavimento antes de la curva; reporte de central de operaciones'),
-            _detect('Ángulo de articulación del segundo remolque', 'Cámara trasera o sensor de articulación (si disponible); cualquier ángulo anómalo es señal de alarma'),
-        ],
-        'previsiones_proteccion': [
-            'ANTES de la curva: reducir velocidad a ' + vel_curva + '; seleccionar la marcha correcta; NO cambiar de marcha dentro de la curva',
-            'Mantener el carril derecho con margen adicional al centro de la vía para compensar el radio de giro extendido del segundo remolque',
-            'Activar luces de advertencia si la velocidad cae drásticamente en la entrada de la curva para alertar al tráfico detrás',
-            'Revisar presión y estado de neumáticos antes de tramos con curvas en ascenso' + (' — paradero disponible' if has_caseta else ''),
-            'Conocer el radio de giro del doble remolque: anticipar la ocupación de carril y verificar con espejo retrovisor',
-            'Contactar a la base al inicio de cada tramo de curvas; reportar condiciones de superficie',
-        ],
-    }
+    rows = [
+        _r(1,
+           'Zona de entrada a la curva',
+           f'El convoy ({cg_nota}) debe reducir velocidad a {vel_curva} ANTES de entrar a la curva; la fuerza centrífuga y el gradiente de ascenso actúan simultáneamente desde el inicio de la curva',
+           'Velocidad excesiva de entrada a la curva; frenada tardía que lleva el convoy al interior de la curva a velocidad crítica; superficie húmeda o con gravilla en la zona de entrada',
+           f'Verificar la velocidad del convoy al acercarse a la curva: debe estar bajo {vel_curva} antes de la entrada; observar la señalización de velocidad recomendada; reportar condición del pavimento a la base',
+           f'Instruir al conductor a reducir velocidad a {vel_curva} como mínimo 200 m antes de la curva; no intentar cambio de marcha dentro de la curva; señalizar la presencia del convoy con luces',
+           'Si el convoy entra a la curva con velocidad excesiva: instruir reducción gradual (no frenar bruscamente); si el convoy se sale de carril: activar bocina y luces; reportar inmediatamente a base y 911',
+        ),
+        _r(2,
+           'Interior / ápex de la curva ascendente',
+           'El punto de máxima fuerza centrífuga + gradiente máximo del ascenso; el convoy está en su posición de mayor inestabilidad lateral; el segundo remolque tiende a amplificar el ángulo de giro',
+           'Vuelco lateral del segundo remolque; invasión del carril contrario por el segundo remolque (excede el radio de giro del tracto); pérdida de tracción en los ejes motrices',
+           'Observar mediante espejo trasero el ángulo del segundo remolque en la curva; verificar que el convoy permanezca dentro de su carril; comunicar al conductor cualquier desvío del segundo remolque',
+           'No adelantar ni cambiar de carril en el ápex de la curva; mantener velocidad constante (no acelerar ni frenar abruptamente dentro del ápex); mantenerse al extremo derecho del carril',
+           'Si el segundo remolque invade el carril contrario: activar bocina + luces de emergencia; reducir velocidad gradual; detenerse en el primer punto seguro posterior a la curva para inspección',
+        ),
+        _r(3,
+           'Exterior de la curva (zona de salida de vía)',
+           'El exterior de la curva es donde el convoy puede ser expulsado si la velocidad supera el umbral de vuelco; la barrera de contención (guardarrail) o el talud es el único elemento que detiene la salida',
+           'Vuelco lateral hacia el exterior; salida de vía por exceso de velocidad en la curva; impacto contra el guardarrail exterior con posible ruptura',
+           'Verificar la existencia y condición del guardarrail en el exterior de la curva al iniciar el tramo; reportar ausencia de barrera a la base; observar el espacio de maniobra disponible',
+           'Mantener el convoy alejado del borde exterior del carril; si el pavimento en el exterior muestra deterioro (grietas, bordes sueltos) reportar a base y reducir velocidad adicional',
+           'Si el convoy se dirige al exterior de la curva: instruir giro suave hacia el interior (no frenar bruscamente); si el impacto con guardarrail es inminente: activar bocina, preparar comunicación de emergencia',
+        ),
+        _r(4,
+           'Carril de sentido contrario',
+           'El segundo remolque del convoy, en curvas cerradas ascendentes, puede sobresalir hacia el carril contrario por el radio de giro extendido; vehículos en sentido contrario no anticipan esta invasión',
+           'Colisión frontal con vehículo en sentido contrario invadido por el segundo remolque; vehículo en sentido contrario que también invade el carril del convoy (doble invasión)',
+           'Observar la visibilidad hacia el carril contrario antes de entrar a la curva; identificar vehículos que vienen en sentido contrario y comunicar al conductor; verificar la señalización de carril único si aplica',
+           'Activar las luces de advertencia y presencia antes de entrar a la curva cerrada; reducir al máximo el ancho ocupado en el carril propio; si es posible, ceder momentáneamente el paso al vehículo contrario',
+           'Si colisión frontal inminente: bocina continua + reducir a velocidad mínima; si impacto ocurre: asegurar al conductor, luces de emergencia, triángulos, notificar base y 911',
+        ),
+        _r(5,
+           'Zona de articulación del doble remolque',
+           'Los dos puntos de articulación del convoy (entre tracto y 1er remolque, y entre remolques) están bajo máxima tensión torsional en curva + ascenso; la conexión entre remolques es el punto más débil',
+           'Ruptura o desacoplamiento de la conexión entre remolques en plena curva; exceso de ángulo de articulación que deja el segundo remolque perpendicular al carril; jackknifing parcial en curva ascendente',
+           'Verificar el estado de los enganches y la quinta rueda ANTES del tramo de curvas; observar el ángulo de articulación mediante cámara trasera durante la curva; reportar cualquier sonido metálico inusual de los enganches',
+           'Velocidad máxima en curva ajustada al radio de curvatura; no acelerar abruptamente dentro de la curva para no aumentar el ángulo de articulación; revisar el enganche en toda parada previa al tramo',
+           'Si se detecta movimiento anómalo en la articulación: detención en el primer punto seguro + inspección de enganche + no continuar si hay daño visible; notificar base y solicitar asistencia técnica',
+        ),
+        _r(6,
+           'Control de velocidad y comunicación en curva',
+           f'El OS debe coordinar activamente la velocidad del convoy durante el ascenso en curva ({vel_curva}); la comunicación con la base puede ser intermitente en zonas de ladera y curva',
+           'Conductor que no respeta la velocidad máxima recomendada en curva; falta de comunicación con la base en el momento de mayor riesgo; conductor distraído por comunicación en plena curva',
+           'Verificar la velocidad del convoy en tiempo real durante la curva; no iniciar comunicaciones con la base mientras el convoy está en el ápex de la curva (distrae al conductor)',
+           'Toda comunicación verbal entre OS y conductor debe realizarse ANTES o DESPUÉS de la curva, nunca durante; el OS no debe solicitar atención del conductor en el punto de mayor demanda',
+           'Si se necesita comunicar una emergencia dentro de la curva: señales visuales (toque en hombro, señal convenida) en lugar de comunicación verbal; verbalizar la situación solo al salir de la curva',
+        ),
+    ]
+
+    os_profile = (
+        f'El OS actúa como controlador de velocidad y estabilidad lateral en este tramo de curva ascendente. '
+        f'PUEDE: verificar la velocidad de entrada a la curva vs. el umbral seguro ({vel_curva}); '
+        f'alertar al conductor de vehículos en sentido contrario; ordenar detención antes de la curva si las condiciones de la superficie son adversas; '
+        f'coordinar con la base durante los tramos rectos entre curvas. '
+        f'NO PUEDE: tomar el control del vehículo; instruir maniobras en el ápex de la curva que distraigan al conductor; '
+        f'garantizar la estabilidad del convoy si la velocidad de entrada supera el umbral crítico. '
+        f'Condición de carga: {load_state}. '
+        f'{"Carga completa = centro de gravedad máximo = umbral de vuelco más bajo. Perfil: CRÍTICO." if is_full else "Media carga asimétrica = comportamiento impredecible del segundo remolque en curva. Perfil: ALTO."}'
+    )
+
+    return {'tabla_proceso': rows, 'os_profile': os_profile}
 
 
-# ── Curva Descendente ──────────────────────────────────────────────────────────
+# ── CURVA DESCENDENTE ──────────────────────────────────────────────────────────
 
 def _curva_descendente(load_state, has_rampa, has_caseta, dist_km):
     is_full = load_state == FULL_LOAD
     vel_critica = '30–40 km/h' if is_full else '40–50 km/h'
+    escenario = 'Máximo riesgo del viaje: fuerza gravitacional + fuerza centrífuga + ' + (
+        'masa completa del convoy' if is_full else 'masa asimétrica por media carga'
+    ) + ' actúan simultáneamente'
 
-    return {
-        'objetivos_vulnerabilidades': {
-            'objetivos': [
-                'Sistema de frenos bajo la demanda más exigente del viaje: frenado + curva + peso + gradiente simultáneos',
-                'Estabilidad del convoy: la combinación de fuerza gravitacional + centrífuga es el escenario mecánico más crítico',
-                'Conductor y tripulación; vehículos en sentido contrario; infraestructura del tramo (guardarrail, talud)',
-                'Carga: ' + ('peso máximo con máxima inercia en frenada curva-descenso' if is_full else 'carga asimétrica; un remolque más ligero puede bambolear en la curva descendente'),
-            ],
-            'vulnerabilidades': [
-                'Combinación simultánea de fuerza centrífuga, gravedad y ' + ('masa máxima' if is_full else 'masa asimétrica') + ': el escenario mecánico más exigente para el sistema de frenado del convoy',
-                'Frenos posiblemente ya comprometidos por descenso anterior si el tramo forma parte de una cadena de curvas-descenso',
-                'Temperatura de frenos y neumáticos elevada desde tramos previos',
-                'Visibilidad reducida en curva cerrada descendente; conductor ve tarde los obstáculos',
-                'Rampa de emergencia ' + ('disponible en este tramo' if has_rampa else 'no identificada en este tramo: máxima restricción de velocidad es la única salvaguarda'),
-            ],
-        },
-        'identificacion_riesgos': [
-            _risk('Vuelco en curva descendente', 'El escenario de mayor peligro del viaje: la suma de descenso + curva con ' + ('carga completa' if is_full else 'carga asimétrica') + ' puede producir vuelco a velocidades que parecen moderadas', 'Crítico'),
-            _risk('Fallo de frenos en curva', 'Frenos comprometidos por descenso anterior + demanda adicional de la curva; pérdida total de control dentro de la curva', 'Crítico'),
-            _risk('Salida de vía por exceso de velocidad', 'El convoy supera la velocidad crítica de la curva y sale de vía; riesgo de caída por talud o impacto contra barrera', 'Crítico' if is_full else 'Alto'),
-            _risk('Jackknifing (efecto tijera)', 'El tracto gira más que los remolques durante el frenado en curva; los remolques empujan lateralmente y pueden voltear el tracto o bloquear toda la vía', 'Crítico' if is_full else 'Alto'),
-            _risk('Colisión frontal por invasión de carril', 'El segundo remolque invade el carril contrario en la curva descendente; colisión con vehículo en sentido contrario', 'Crítico'),
-        ],
-        'perspectiva_impacto': [
-            _impact('Humano', 'Potencial de fatalidades múltiples: conductor, tripulación y vehículos en sentido contrario; el vuelco de un camión de doble remolque en curva descendente es un evento catastrófico de alta probabilidad de víctimas'),
-            _impact('Económico', 'Pérdida total de unidad y carga; daños a infraestructura (guardarrail, señalización, talud, postes); costos de rescate y limpieza que pueden superar el valor de la carga'),
-            _impact('Operacional', 'Cierre de vía por horas o días en zona de difícil acceso; desvío de cientos de vehículos; pérdida completa del viaje'),
-            _impact('Reputacional', 'Evento de máxima visibilidad mediática; investigación obligatoria de la SCT y posible suspensión de operaciones de la empresa'),
-            _impact('Ambiental', 'Derrame de mercancía, combustible y fluidos en zona de ladera; riesgo de incendio; daño grave al ecosistema circundante'),
-        ],
-        'escenarios_ocurrencia': [
-            'Frenos calientes tras descenso previo no detectados; conductor entra a la curva descendente con sistema de frenado comprometido; el convoy alcanza velocidad crítica y vuelca',
-            'Conductor no activa freno motor antes de la curva; al frenar bruscamente dentro de ella provoca jackknifing con ' + ('doble remolque cargado' if is_full else 'media carga con distribución desigual entre remolques'),
-            'Lluvia inesperada en curva descendente; adherencia reducida al 40 %; el convoy se desliza hacia el exterior de la curva y sale de vía por el talud',
-            'Vehículo lento sin señalización en curva descendente; el conductor del camión frena violentamente; el segundo remolque oscila y golpea el guardarrail opuesto',
-            'Tramo nocturno sin iluminación; conductor no reduce suficientemente antes de la curva descendente; la velocidad de entrada supera el umbral de vuelco',
-        ],
-        'elementos_deteccion': [
-            _detect('Temperatura de frenos ANTES de la curva', 'Sensor térmico (si equipado) o inspección visual obligatoria (humo, olor) en paradero o punto previo a la curva' + (' — punto disponible en tramo' if has_caseta else '')),
-            _detect('Velocidad de entrada a la curva', 'Telemática GPS con alerta crítica si supera ' + vel_critica + '; alerta a conductor Y operador de flota simultáneamente'),
-            _detect('Sistema RSS / control de estabilidad', 'Sistema electrónico de estabilidad (RSS/ESC/EBS); alerta inminente antes del umbral de vuelco o jackknife'),
-            _detect('Ubicación exacta de la rampa de emergencia', 'Conocer la posición kilométrica ANTES de iniciar el tramo' + (' — rampa identificada en este tramo' if has_rampa else ' — sin rampa identificada: la velocidad reducida es la única salvaguarda; planificar alternativa con central')),
-            _detect('Comportamiento del segundo remolque', 'Cámara trasera en tiempo real o espejo convexo; cualquier oscilación lateral es señal de alarma inmediata'),
-        ],
-        'previsiones_proteccion': [
-            'CRÍTICO: Activar freno motor/retarder ANTES de la curva; velocidad máxima de entrada: ' + vel_critica,
-            'Verificar temperatura de frenos en punto previo a la curva' + (' — punto disponible en este tramo' if has_caseta else ' — si no hay punto previo, detención cautelar para enfriamiento de 10–15 min antes del tramo'),
-            'Memorizar la posición exacta de la rampa de emergencia antes de iniciar' + (' — rampa identificada en este tramo' if has_rampa else ' — sin rampa: la única protección es la velocidad reducida; NO ingresar si los frenos están calientes'),
-            'PROHIBIDO rebasar, cambiar de carril o hablar por radio dentro de la curva descendente',
-            'Distancia mínima de seguimiento: 6 segundos (máxima para cualquier tramo del viaje)',
-            'En caso de pérdida de frenos dentro de la curva: usar rampa; si no está disponible, fricción guiada contra guardarrail lado montaña como último recurso; avisar a base por radio',
-            'Verificar y tensar la sujeción de la carga inmediatamente antes del inicio del tramo',
-            'Comunicar inicio y fin del tramo a la base; activar protocolo de búsqueda si no hay reporte en el tiempo estimado',
-        ],
-    }
+    rows = [
+        _r(1,
+           'Zona previa de frenado (antes de entrar a la curva)',
+           f'{escenario}. El convoy DEBE llegar a la curva a {vel_critica} o menos; si los frenos ya están comprometidos por un descenso previo, esta zona es el punto de decisión crítica',
+           'Frenos calientes desde descenso previo que no tienen capacidad residual; conductor que subestima la velocidad de entrada necesaria; superficie húmeda que reduce la adherencia en la fase de frenado',
+           f'Verificar temperatura de frenos ANTES de la curva (olor, humo, comportamiento del pedal); confirmar que la velocidad está bajo {vel_critica} al menos 300 m antes de la curva; revisar el estado del pavimento en la zona de entrada',
+           f'Ordenar detención preventiva en el primer punto seguro si los frenos presentan cualquier señal de compromiso; velocidad de entrada a la curva: máximo {vel_critica}; freno motor activo obligatorio desde antes del inicio de la curva',
+           'Si frenos comprometidos antes de la curva: dirigir al conductor a la rampa de emergencia' + (' (identificada en este tramo)' if has_rampa else ' (sin rampa — mantener velocidad mínima posible y dirigirse al guardarrail de montaña como último recurso)') + '; notificar base y 911',
+        ),
+        _r(2,
+           'Ápex de la curva descendente',
+           'El punto de máxima demanda simultánea del viaje: frenos + fuerza centrífuga + peso + gradiente + visibilidad reducida; cualquier error de velocidad o dirección en este punto puede ser fatal',
+           'Vuelco lateral en el ápex; jackknifing por frenada brusca; salida de vía hacia el talud exterior; colisión frontal con vehículo en sentido contrario',
+           'Observar el ángulo del segundo remolque mediante espejo o cámara; verificar que el convoy permanezca dentro del carril; detectar cualquier señal de pérdida de adherencia (deslizamiento)',
+           'CERO comunicaciones verbales durante el ápex; no tocar al conductor ni distraerlo de ninguna manera; el OS se mantiene en observación silenciosa durante el ápex',
+           'Si el convoy comienza a descontrolarse en el ápex: señal visual al conductor (señal convenida de emergencia); activar bocina si hay vehículo en sentido contrario; reportar a base al salir de la curva',
+        ),
+        _r(3,
+           'Exterior de la curva descendente (zona de salida de vía)',
+           'El exterior de la curva descendente es el punto de mayor probabilidad de salida de vía en todo el viaje; la velocidad + la fuerza centrífuga + la pendiente impulsan el convoy hacia el exterior',
+           'Salida de vía hacia talud exterior o barranca; impacto del convoy contra guardarrail a alta velocidad; vuelco lateral hacia el exterior con caída por ladera',
+           'Verificar la existencia y robustez del guardarrail exterior al inicio del tramo; reportar ausencia de barrera a la base como factor de riesgo adicional; observar el espacio entre el convoy y el borde',
+           'El OS NO debe dar instrucciones al conductor sobre el carril durante la curva descendente si ya se han dado antes; toda instrucción debe ser anterior al ingreso a la curva',
+           'Si el convoy se dirige al exterior: el conductor DECIDE si usa la rampa o el guardarrail; el OS reporta a base; al detenerse: luces de emergencia + triángulos + 911',
+        ),
+        _r(4,
+           'Rampa de emergencia' + (' (identificada en este tramo)' if has_rampa else ' (no identificada en este tramo)'),
+           'La rampa de emergencia es el único dispositivo de rescate para un convoy desbocado; su uso requiere que el conductor la conozca, la identifique a tiempo y tome la decisión a la velocidad correcta',
+           'Conductor que no conoce la ubicación de la rampa; rampa obstruida por otro vehículo o mal conservada; conductor que decide no usarla por miedo al daño del vehículo',
+           'Confirmar la posición kilométrica de la rampa ANTES de iniciar el descenso; comunicar al conductor su ubicación con referencia visual clara; verificar si la rampa está visible y despejada',
+           'El OS APOYA ACTIVAMENTE la decisión del conductor de usar la rampa; no debe haber dudas ni debate sobre usar la rampa si los frenos están fallando' + ('; rampa confirmada en este tramo' if has_rampa else '; sin rampa en este tramo: comunicar esta información al conductor antes del descenso'),
+           'Si convoy se dirige a rampa: comunicar inmediatamente a base; al detenerse: luces + triángulos + 911 para asistencia de recuperación; no mover el vehículo hasta inspección completa',
+        ),
+        _r(5,
+           'Carril de sentido contrario en curva descendente',
+           'El segundo remolque puede invadir el carril contrario en la curva descendente; un vehículo en sentido contrario que también ocupa el centro provoca una colisión frontal a suma de velocidades',
+           'Colisión frontal por invasión recíproca de carriles; vehículo pequeño no visible hasta el ápex por la geometría de la curva; vehículo de alta velocidad en sentido contrario sin anticipar la invasión del convoy',
+           'Verificar visibilidad hacia el carril contrario antes de entrar a la curva; comunicar al conductor si hay tráfico visible en sentido contrario; observar señalización de carril único o de preferencia si aplica',
+           'Activar luces de advertencia (alta visibilidad) antes de entrar a la curva; si hay camión o vehículo grande en sentido contrario, reducir velocidad adicional y ceder espacio lateral máximo posible',
+           'Si colisión frontal inminente: bocina continua + velocidad mínima; si impacto: asegurar al conductor, luces de emergencia, triángulos hacia ambos lados de la curva, notificar base y 911',
+        ),
+        _r(6,
+           'Sistema de frenos y comunicaciones en curva descendente',
+           f'La combinación de descenso + curva genera la demanda más alta de frenos en todo el viaje; la comunicación con la base puede ser intermitente; el OS debe haber coordinado todos los protocolos ANTES del tramo',
+           'Pérdida total de frenos en el punto de mayor exigencia; imposibilidad de comunicar a la base en zona sin cobertura; conductor que entra a la curva sin haber verificado el estado de los frenos',
+           'Confirmar el estado de los frenos en el paradero o punto de verificación previo al tramo; establecer protocolo de comunicación antes de entrar (última posición reportada, tiempo estimado de salida de la curva)',
+           'Toda verificación de frenos y comunicación de protocolos debe realizarse ANTES de entrar al tramo; dentro de la curva descendente el OS solo observa y usa señales visuales de emergencia si es necesario',
+           'Si pérdida total de frenos en curva descendente: rampa de emergencia si está disponible; si no: reducción de velocidad usando el motor, cambio a marcha baja, guardarrail de montaña como último recurso; notificar base en cuanto haya señal',
+        ),
+    ]
+
+    os_profile = (
+        f'El OS opera en el segmento de MÁXIMO RIESGO COMBINADO del viaje (descenso + curva + {load_state.lower()}). '
+        f'PUEDE: verificar la temperatura de frenos antes del tramo; comunicar la posición exacta de la rampa de emergencia; '
+        f'ordenar detención preventiva ante cualquier señal de fading; usar señales visuales de emergencia dentro de la curva. '
+        f'NO PUEDE: garantizar la detención del convoy si los frenos fallan totalmente; '
+        f'instruir verbalmente al conductor durante el ápex de la curva (máxima concentración del conductor requerida); '
+        f'tomar el control mecánico del vehículo desde su posición. '
+        f'Condición de carga: {load_state}. '
+        f'{"Carga completa = máxima inercia + mayor momento volcador. Cualquier error de velocidad puede ser fatal. Perfil: CRÍTICO MÁXIMO." if is_full else "Media carga asimétrica = comportamiento impredecible del segundo remolque. El frenado desigual por eje es el mayor peligro. Perfil: CRÍTICO."}'
+    )
+
+    return {'tabla_proceso': rows, 'os_profile': os_profile}
 
 
-# ── Dispatch map ───────────────────────────────────────────────────────────────
+# ── Dispatch ───────────────────────────────────────────────────────────────────
 
 _BUILDERS = {
     'Recta':             _recta,
@@ -346,44 +389,37 @@ _BUILDERS = {
     'Curva Descendente': _curva_descendente,
 }
 
-# Trazo types where half-load meaningfully changes the risk profile
-_HALF_LOAD_FLAG_TRAZOS = {'Recta Descendente', 'Curva Ascendente', 'Curva Descendente'}
+
+def _has(referencias, keyword):
+    return any(keyword.lower() in r.lower() for r in referencias)
 
 
 def generate_risk_analysis(tramo: dict, load_state: str) -> dict:
     """
-    Return a structured 6-section risk analysis for a single tramo.
-
-    tramo      — dict with 'trazo_topografia', 'referencias', 'distancia_km'
-    load_state — FULL_LOAD or HALF_LOAD
+    Return PROCESO operational risk analysis for a single tramo.
 
     Returns:
     {
       'load_state':      str,
-      'load_state_flag': bool,   # True when half-load meaningfully shifts the risk profile
-      'sections': {
-        'objetivos_vulnerabilidades':  { 'objetivos': [...], 'vulnerabilidades': [...] },
-        'identificacion_riesgos':      [ { 'riesgo', 'descripcion', 'magnitud' }, ... ],
-        'perspectiva_impacto':         [ { 'dimension', 'descripcion' }, ... ],
-        'escenarios_ocurrencia':       [ str, ... ],
-        'elementos_deteccion':         [ { 'indicador', 'herramienta' }, ... ],
-        'previsiones_proteccion':      [ str, ... ],
-      }
+      'load_state_flag': bool,
+      'tabla_proceso':   [ [#, Area, Dinamica, Amenazas, Vigilancia, Restriccion, Intervencion], ... ],
+      'os_profile':      str,
     }
     """
-    trazo     = tramo.get('trazo_topografia', 'Recta')
-    refs      = tramo.get('referencias', [])
-    dist_km   = tramo.get('distancia_km', 0.0)
+    trazo    = tramo.get('trazo_topografia', 'Recta')
+    refs     = tramo.get('referencias', [])
+    dist_km  = tramo.get('distancia_km', 0.0)
     has_rampa  = _has(refs, 'rampa')
     has_caseta = _has(refs, 'caseta') or _has(refs, 'paradero')
 
-    builder  = _BUILDERS.get(trazo, _recta)
-    sections = builder(load_state, has_rampa, has_caseta, dist_km)
+    builder = _BUILDERS.get(trazo, _recta)
+    result  = builder(load_state, has_rampa, has_caseta, dist_km)
 
     load_state_flag = (load_state == HALF_LOAD) and (trazo in _HALF_LOAD_FLAG_TRAZOS)
 
     return {
         'load_state':      load_state,
         'load_state_flag': load_state_flag,
-        'sections':        sections,
+        'tabla_proceso':   result['tabla_proceso'],
+        'os_profile':      result['os_profile'],
     }
