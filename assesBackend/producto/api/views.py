@@ -315,7 +315,7 @@ class RouteAnalysisViewSet(viewsets.ViewSet):
         result = segment_route(coordinates, references, vehicle_config)
         return Response(result, status=status.HTTP_200_OK)
 
-    @action(detail=False, methods=['post'], permission_classes=[AllowAny])
+    @action(detail=False, methods=['post'], permission_classes=[AllowAny], url_path='export-pdf')
     def export_pdf(self, request):
         """
         Accepts the same payload as /analyze/, generates a full PDF report
