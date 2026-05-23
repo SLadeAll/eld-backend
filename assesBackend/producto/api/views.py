@@ -3,8 +3,9 @@ from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny
 from rest_framework.authtoken.models import Token
+from django.http import HttpResponse
 from django.utils import timezone
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from producto.models import (
     Producto, Driver, Trip, Stop, DailyLog, LogEntry, UserProfile
@@ -17,6 +18,7 @@ from producto.api.serilizers import (
     RouteAnalysisRequestSerializer,
 )
 from producto.route_analysis import segment_route
+from producto.pdf_generator import build_pdf
 
 
 class ProductoViewSet(viewsets.ModelViewSet):
@@ -312,3 +314,39 @@ class RouteAnalysisViewSet(viewsets.ViewSet):
 
         result = segment_route(coordinates, references, vehicle_config)
         return Response(result, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['post'], permission_classes=[AllowAny])
+    def export_pdf(self, request):
+        """
+        Accepts the same payload as /analyze/, generates a full PDF report
+        (cover + per-tramo map + PROCESO table + OS profile) and returns it
+        as an application/pdf download.
+        """
+        serializer = RouteAnalysisRequestSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        coordinates    = serializer.validated_data['coordinates']
+        references     = serializer.validated_data.get('references', [])
+        vehicle_config = serializer.validated_data.get('vehicle_config', {})
+        route_label    = request.data.get('route_label', '')
+
+        result = segment_route(coordinates, references, vehicle_config)
+        tramos = result.get('tramos', [])
+
+        try:
+            pdf_bytes = build_pdf(tramos, route_label=route_label)
+        except Exception as exc:
+            return Response(
+                {'error': f'Error generando PDF: {exc}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        date_str  = datetime.now().strftime('%Y%m%d_%H%M')
+        safe_name = ''.join(c if c.isalnum() or c in '-_' else '_' for c in route_label)[:40]
+        filename  = f"analisis_riesgos_{safe_name}_{date_str}.pdf" if safe_name else f"analisis_riesgos_{date_str}.pdf"
+
+        response = HttpResponse(pdf_bytes, content_type='application/pdf')
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        response['Access-Control-Expose-Headers'] = 'Content-Disposition'
+        return response
