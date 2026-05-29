@@ -1,10 +1,11 @@
 """
 Automatic road indication extraction from OSM Overpass API.
 
-Queries the Overpass API for traffic signals, speed bumps, toll booths,
-fuel stations, rest areas, and other road features within the bounding
-box of a given route.  Results are cached in-memory per bounding box to
-avoid re-querying the same area within CACHE_TTL_SECONDS.
+Queries the Overpass API for speed bumps, toll booths, fuel stations,
+rest areas, level crossings, construction zones, and speed limits
+within the bounding box of a given route.  Results are cached
+in-memory per bounding box to avoid re-querying the same area
+within CACHE_TTL_SECONDS.
 """
 
 import math
@@ -42,12 +43,13 @@ def _overpass_query(min_lat: float, min_lon: float, max_lat: float, max_lon: flo
     """
     Query Overpass for road-relevant OSM nodes in the bounding box.
     Returns raw indication dicts.  Network failures return an empty list.
+    traffic_signals are excluded: they generate hundreds of irrelevant
+    markers on urban segments of any long-haul route.
     """
     bbox = f"{min_lat},{min_lon},{max_lat},{max_lon}"
     query = f"""
     [out:json][timeout:25];
     (
-      node["highway"="traffic_signals"]({bbox});
       node["highway"="stop"]({bbox});
       node["highway"="give_way"]({bbox});
       node["traffic_calming"~"bump|hump|speed_table|cushion"]({bbox});
@@ -81,7 +83,6 @@ def _overpass_query(min_lat: float, min_lon: float, max_lat: float, max_lon: flo
         if lat is None or lon is None:
             continue
 
-        # Deduplicate positions rounded to ~100 m (3 decimal places)
         pos_key = (round(lat, 3), round(lon, 3))
         if pos_key in seen:
             continue
@@ -95,13 +96,7 @@ def _overpass_query(min_lat: float, min_lon: float, max_lat: float, max_lon: flo
         calming = tags.get("traffic_calming", "")
         maxspeed = tags.get("maxspeed", "")
 
-        if highway == "traffic_signals":
-            indications.append({
-                "lat": lat, "lon": lon,
-                "type": "traffic_signal",
-                "label": tags.get("name", "Semáforo"),
-            })
-        elif highway in ("stop", "give_way"):
+        if highway in ("stop", "give_way"):
             indications.append({
                 "lat": lat, "lon": lon,
                 "type": "stop_sign",
@@ -174,7 +169,6 @@ def _filter_near_route(
     """Retain only indications within max_km of any sampled route point."""
     if not indications:
         return []
-    # Sample every Nth point for performance (route is already downsampled)
     step = max(1, len(coordinates) // 100)
     check = coordinates[::step]
     return [
