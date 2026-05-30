@@ -12,6 +12,7 @@ TRAZO_CURVA_DESCENDENTE = 'Curva Descendente'
 # Bearing-change threshold (degrees, after smoothing) that signals a curve.
 # Raised to 10° because sample coordinates are spaced ~40 km apart — at that
 # density even gently curving highways produce bearing changes > 3°.
+# For dense 2 km-spaced coordinates the adaptive helper lowers this to ~4°.
 BEARING_CURVE_THRESHOLD = 10.0
 # Smoothing window size (segments) for both curvature and grade signals
 SMOOTHING_WINDOW = 5
@@ -24,6 +25,26 @@ GRADE_THRESHOLD = 0.003
 MIN_REFERENCIAS_PER_TRAMO = 15
 # Type cycle used when auto-filling references to reach the minimum
 _AUTO_REF_CYCLE = ['gasolinera', 'paradero', 'rampa', 'paradero', 'gasolinera', 'rampa']
+
+
+def _adaptive_params(distances: List[float]) -> tuple:
+    """
+    Return (curve_threshold_deg, min_tramo_dist_m, smooth_window) scaled to
+    the average inter-coordinate spacing so the algorithm works equally well
+    with sparse ~40 km samples and dense 2 km ORS samples.
+
+    At ~40 km avg spacing → (10°, 500 m, 5)   ← original calibration
+    At ~2  km avg spacing → ( 4°, 8 km,  8)   ← dense ORS route
+    """
+    if not distances:
+        return BEARING_CURVE_THRESHOLD, MIN_TRAMO_DISTANCE_M, SMOOTHING_WINDOW
+    avg_m = sum(distances) / len(distances)
+    lo_s, hi_s = 2_000.0, 40_000.0
+    t = max(0.0, min(1.0, math.log(max(avg_m, lo_s) / lo_s) / math.log(hi_s / lo_s)))
+    curve_thresh = 4.0 + (10.0 - 4.0) * t
+    min_dist     = 8_000.0 + (500.0 - 8_000.0) * t
+    window       = round(8 + (5 - 8) * t)           # 8 at dense, 5 at sparse
+    return curve_thresh, min_dist, window
 
 
 def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -136,11 +157,14 @@ def segment_route(
         bearings.append(_bearing(c1['lat'], c1['lon'], c2['lat'], c2['lon']))
         distances.append(_haversine_m(c1['lat'], c1['lon'], c2['lat'], c2['lon']))
 
+    # ── 1b. Adaptive thresholds based on coordinate density ──────────────
+    curve_threshold, min_tramo_dist, smooth_window = _adaptive_params(distances)
+
     # ── 2. Curvature signal: absolute bearing change between segments ──────
     bearing_changes: List[float] = [0.0]
     for i in range(1, len(bearings)):
         bearing_changes.append(abs(_angular_diff(bearings[i - 1], bearings[i])))
-    smoothed_curve = _smooth(bearing_changes, SMOOTHING_WINDOW)
+    smoothed_curve = _smooth(bearing_changes, smooth_window)
 
     # ── 3. Elevation grade ────────────────────────────────────────────────
     has_elevation = any(c.get('elevation') is not None for c in coordinates)
@@ -152,11 +176,11 @@ def segment_route(
             grades.append((e2 - e1) / distances[i])
         else:
             grades.append(0.0)
-    smoothed_grade = _smooth(grades, SMOOTHING_WINDOW)
+    smoothed_grade = _smooth(grades, smooth_window)
 
     # ── 4. Per-segment classification ─────────────────────────────────────
     def _classify(curve_val: float, grade_val: float) -> str:
-        is_curve = curve_val > BEARING_CURVE_THRESHOLD
+        is_curve = curve_val > curve_threshold
         is_ascending = grade_val > GRADE_THRESHOLD
         is_descending = grade_val < -GRADE_THRESHOLD
 
@@ -193,7 +217,7 @@ def segment_route(
         dist_since_last += distances[i - 1]
         is_caseta = i in caseta_segs
         is_change = classifications[i] != classifications[i - 1]
-        if (is_change or is_caseta) and dist_since_last >= MIN_TRAMO_DISTANCE_M:
+        if (is_change or is_caseta) and dist_since_last >= min_tramo_dist:
             boundaries.append(i)
             dist_since_last = 0.0
     boundaries.append(n - 1)
