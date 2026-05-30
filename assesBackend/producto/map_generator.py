@@ -26,17 +26,22 @@ def _safe_label(label: str) -> str:
     )[:80]
 
 
-def get_segment_map(start_coords: tuple, end_coords: tuple, segment_label: str) -> str:
+def get_segment_map(
+    start_coords: tuple,
+    end_coords: tuple,
+    segment_label: str,
+    route_coords: list = None,
+) -> str:
     """
     Generate a static map image for a single road segment and save it to a
     temp file.  Returns the absolute path to the PNG file.
 
-    start_coords: (lat, lon)
-    end_coords:   (lat, lon)
+    start_coords:  (lat, lon)
+    end_coords:    (lat, lon)
     segment_label: human-readable label, e.g. "Tramo 1"
-
-    The function tries staticmap first, then falls back to a plain PIL image
-    with coordinate text so the PDF still has something to show.
+    route_coords:  optional list of {'lat': float, 'lon': float} dicts that
+                   define the actual road geometry; when provided a proper
+                   polyline is rendered instead of a straight start→end line.
     """
     tmp_path = os.path.join(
         tempfile.gettempdir(),
@@ -53,7 +58,13 @@ def get_segment_map(start_coords: tuple, end_coords: tuple, segment_label: str) 
         start_xy = (start_coords[1], start_coords[0])
         end_xy   = (end_coords[1],   end_coords[0])
 
-        m.add_line(Line([start_xy, end_xy], '#e63946', 4))
+        # Use actual route polyline when available, otherwise draw a straight line
+        if route_coords and len(route_coords) >= 2:
+            line_points = [(c['lon'], c['lat']) for c in route_coords]
+        else:
+            line_points = [start_xy, end_xy]
+
+        m.add_line(Line(line_points, '#e63946', 4))
         m.add_marker(CircleMarker(start_xy, '#2dc653', 14))   # green = start
         m.add_marker(CircleMarker(end_xy,   '#e63946', 14))   # red   = end
 
@@ -75,10 +86,29 @@ def get_segment_map(start_coords: tuple, end_coords: tuple, segment_label: str) 
         # Draw border
         draw.rectangle([0, 0, MAP_WIDTH - 1, MAP_HEIGHT - 1], outline='#9ca3af', width=2)
 
-        # Route line (diagonal from start to end area)
-        sx, sy = int(MAP_WIDTH * 0.15), int(MAP_HEIGHT * 0.75)
-        ex, ey = int(MAP_WIDTH * 0.85), int(MAP_HEIGHT * 0.25)
-        draw.line([sx, sy, ex, ey], fill='#e63946', width=4)
+        if route_coords and len(route_coords) >= 2:
+            # Normalise geographic coordinates to pixel space with padding
+            lats = [c['lat'] for c in route_coords]
+            lons = [c['lon'] for c in route_coords]
+            min_lat, max_lat = min(lats), max(lats)
+            min_lon, max_lon = min(lons), max(lons)
+            lat_range = max_lat - min_lat or 0.01
+            lon_range = max_lon - min_lon or 0.01
+            pad = 0.12
+
+            def _to_px(lat, lon):
+                x = int(pad * MAP_WIDTH + (lon - min_lon) / lon_range * (1 - 2 * pad) * MAP_WIDTH)
+                y = int((1 - pad) * MAP_HEIGHT - (lat - min_lat) / lat_range * (1 - 2 * pad) * MAP_HEIGHT)
+                return x, y
+
+            pts = [_to_px(c['lat'], c['lon']) for c in route_coords]
+            draw.line(pts, fill='#e63946', width=4)
+            sx, sy = pts[0]
+            ex, ey = pts[-1]
+        else:
+            sx, sy = int(MAP_WIDTH * 0.15), int(MAP_HEIGHT * 0.75)
+            ex, ey = int(MAP_WIDTH * 0.85), int(MAP_HEIGHT * 0.25)
+            draw.line([sx, sy, ex, ey], fill='#e63946', width=4)
 
         # Markers
         r = 10
@@ -87,7 +117,7 @@ def get_segment_map(start_coords: tuple, end_coords: tuple, segment_label: str) 
 
         # Labels
         try:
-            font = ImageFont.truetype("arial.ttf", 13)
+            font  = ImageFont.truetype("arial.ttf", 13)
             small = ImageFont.truetype("arial.ttf", 11)
         except Exception:
             font = small = ImageFont.load_default()

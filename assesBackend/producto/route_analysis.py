@@ -153,7 +153,8 @@ def segment_route(
 
     Returns {'tramos': [...], 'total_tramos': int, 'distancia_total_km': float,
              'matched_references': [{'lat', 'lon', 'type', 'name'}, ...]}
-    Each tramo includes a 'risk_analysis' block with 6 structured sections.
+    Each tramo includes a 'risk_analysis' block with 6 structured sections
+    and 'tramo_coords' with the actual route coordinate slice for map rendering.
     """
     if references is None:
         references = []
@@ -227,8 +228,6 @@ def segment_route(
 
     for ref in references:
         # Only include references within MAX_REF_DISTANCE_M of the route.
-        # Without this check every reference sent by the client is blindly
-        # assigned to some tramo even if it is hundreds of km away.
         min_d = min(
             _haversine_m(ref['lat'], ref['lon'], c['lat'], c['lon'])
             for c in coordinates
@@ -248,9 +247,6 @@ def segment_route(
         })
 
     # ── 6. Tramo boundaries ───────────────────────────────────────────────
-    # A boundary is placed when:
-    #   a) classification changes AND accumulated distance >= MIN_TRAMO_DISTANCE_M
-    #   b) a caseta falls on the segment (toll booths always split a Tramo)
     boundaries = [0]
     dist_since_last = 0.0
     for i in range(1, len(classifications)):
@@ -303,8 +299,6 @@ def segment_route(
             referencias.insert(0, f"Viene de Caseta: {cname}")
 
         # ── Monitoring checkpoints — guarantee MIN_REFS_PER_TRAMO entries ────────
-        # Interpolated from the sampled route geometry so every checkpoint carries
-        # a real lat/lon that appears on the map as a tracking marker.
         needed = max(0, MIN_REFS_PER_TRAMO - len(referencias))
         if needed > 0:
             tramo_start_km = sum(distances[:seg_start]) / 1000.0
@@ -349,6 +343,10 @@ def segment_route(
             'referencias': referencias,
             'distancia_km': round(dist_m / 1000.0, 2),
             'emergency_contacts': emergency_contacts,
+            'tramo_coords': [
+                {'lat': round(coordinates[i]['lat'], 6), 'lon': round(coordinates[i]['lon'], 6)}
+                for i in range(seg_start, min(seg_end + 1, n))
+            ],
         }
 
         tramo_dict['risk_analysis'] = generate_risk_analysis(tramo_dict, load_state)
