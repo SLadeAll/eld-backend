@@ -48,7 +48,7 @@ def get_segment_map(
         f"segmap_{_safe_label(segment_label)}.png",
     )
 
-    # ── Primary: staticmap (OSM tiles) ────────────────────────────────────────
+    # ── Primary: staticmap (OSM tiles) ────────────────────────────────────────────
     try:
         from staticmap import StaticMap, Line, CircleMarker
 
@@ -58,7 +58,7 @@ def get_segment_map(
         start_xy = (start_coords[1], start_coords[0])
         end_xy   = (end_coords[1],   end_coords[0])
 
-        # Use actual route polyline when available, otherwise draw a straight line
+        # Use actual route polyline when available, otherwise draw straight line
         if route_coords and len(route_coords) >= 2:
             line_points = [(c['lon'], c['lat']) for c in route_coords]
         else:
@@ -76,7 +76,7 @@ def get_segment_map(
     except Exception as exc:
         logger.warning("staticmap failed (%s); using PIL fallback.", exc)
 
-    # ── Fallback: Pillow plain image ───────────────────────────────────────────
+    # ── Fallback: Pillow plain image ─────────────────────────────────────────────
     try:
         from PIL import Image, ImageDraw, ImageFont
 
@@ -133,5 +133,4 @@ def get_segment_map(
 
     except Exception as exc:
         logger.error("PIL fallback also failed: %s", exc)
-        # Return an empty temp path; pdf_generator will skip the image gracefully
         return tmp_path
