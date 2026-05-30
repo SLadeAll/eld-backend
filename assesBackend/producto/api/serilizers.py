@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.contrib.auth.models import User
-from producto.models import Producto, Driver, Trip, Stop, DailyLog, LogEntry, UserProfile
+from producto.models import Producto, Driver, Trip, Stop, DailyLog, LogEntry, UserProfile, RouteReference
 
 
 # User Registration Serializer
@@ -209,6 +209,12 @@ class VehicleConfigSerializer(serializers.Serializer):
             "Los tramos cuyo seg_start >= este índice se marcan como Media Carga."
         ),
     )
+
+
+class RouteReferenceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = RouteReference
+        fields = ['lat', 'lon', 'type', 'name']
 
 
 class RouteAnalysisRequestSerializer(serializers.Serializer):
