@@ -2,6 +2,7 @@ import math
 from typing import Dict, List, Optional
 
 from producto.risk_analysis import generate_risk_analysis, FULL_LOAD, HALF_LOAD
+from producto.emergency_contacts import get_contacts_for_coords
 
 TRAZO_RECTA = 'Recta'
 TRAZO_RECTA_ASCENDENTE = 'Recta Ascendente'
@@ -298,6 +299,12 @@ def segment_route(
                     'name': cp_name,
                 })
 
+        # ── Emergency contacts — resolved from tramo midpoint coordinates ──────
+        mid_idx = (seg_start + seg_end) // 2
+        mid_lat = coordinates[mid_idx]['lat']
+        mid_lon = coordinates[mid_idx]['lon']
+        emergency_contacts = get_contacts_for_coords(mid_lat, mid_lon)
+
         # Determine load state for this tramo based on vehicle_config
         if first_delivery_idx is not None and seg_start >= first_delivery_idx:
             load_state = HALF_LOAD
@@ -317,6 +324,7 @@ def segment_route(
             'trazo_topografia': dominant,
             'referencias': referencias,
             'distancia_km': round(dist_m / 1000.0, 2),
+            'emergency_contacts': emergency_contacts,
         }
 
         tramo_dict['risk_analysis'] = generate_risk_analysis(tramo_dict, load_state)
