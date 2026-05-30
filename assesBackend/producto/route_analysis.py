@@ -21,10 +21,6 @@ MIN_TRAMO_DISTANCE_M = 500.0
 # Grade fraction (rise/run) that classifies a segment as ascending/descending.
 # Lowered to 0.3 % so gentle plateau grades are still captured.
 GRADE_THRESHOLD = 0.003
-# Minimum number of reference items to show per Tramo (auto-filled if needed)
-MIN_REFERENCIAS_PER_TRAMO = 15
-# Type cycle used when auto-filling references to reach the minimum
-_AUTO_REF_CYCLE = ['gasolinera', 'paradero', 'rampa', 'paradero', 'gasolinera', 'rampa']
 # Maximum distance (metres) a reference may be from the nearest route coordinate
 # before it is discarded.  25 km is generous enough to handle the 35 km sample
 # spacing (worst-case a reference between two samples sits ~17 km from the
@@ -96,28 +92,6 @@ def _nearest_segment_idx(coordinates: List[Dict], lat: float, lon: float) -> int
             best = i
     return best
 
-
-def _auto_fill_referencias(
-    existing: List[str],
-    tramo_start_km: float,
-    tramo_dist_km: float,
-) -> List[str]:
-    """Append evenly-spaced synthetic references until MIN_REFERENCIAS_PER_TRAMO."""
-    needed = MIN_REFERENCIAS_PER_TRAMO - len(existing)
-    if needed <= 0 or tramo_dist_km < 0.1:
-        return existing[:]
-    spacing = tramo_dist_km / (needed + 1)
-    extra: List[str] = []
-    for i in range(needed):
-        km = round(tramo_start_km + spacing * (i + 1))
-        rtype = _AUTO_REF_CYCLE[i % len(_AUTO_REF_CYCLE)]
-        if rtype == 'gasolinera':
-            extra.append(f"Gasolinera Km {km}")
-        elif rtype == 'paradero':
-            extra.append(f"Paradero Km {km}")
-        else:
-            extra.append(f"Rampa de emergencia Km {km}")
-    return existing + extra
 
 
 def segment_route(
@@ -290,10 +264,6 @@ def segment_route(
 
         for cname in prev_caseta_names:
             referencias.insert(0, f"Viene de Caseta: {cname}")
-
-        # Auto-fill with synthetic km-marker references to reach the minimum
-        tramo_start_km = sum(distances[:seg_start]) / 1000.0
-        referencias = _auto_fill_referencias(referencias, tramo_start_km, dist_m / 1000.0)
 
         # Determine load state for this tramo based on vehicle_config
         if first_delivery_idx is not None and seg_start >= first_delivery_idx:
