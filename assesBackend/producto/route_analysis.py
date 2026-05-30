@@ -25,6 +25,11 @@ GRADE_THRESHOLD = 0.003
 MIN_REFERENCIAS_PER_TRAMO = 15
 # Type cycle used when auto-filling references to reach the minimum
 _AUTO_REF_CYCLE = ['gasolinera', 'paradero', 'rampa', 'paradero', 'gasolinera', 'rampa']
+# Maximum distance (metres) a reference may be from the nearest route coordinate
+# before it is discarded.  25 km is generous enough to handle the 35 km sample
+# spacing (worst-case a reference between two samples sits ~17 km from the
+# nearest sampled point) while still excluding references on unrelated corridors.
+MAX_REF_DISTANCE_M = 25_000.0
 
 
 def _adaptive_params(distances: List[float]) -> tuple:
@@ -135,7 +140,8 @@ def segment_route(
                                                            # FULL_LOAD, at/after are HALF_LOAD
                     }
 
-    Returns {'tramos': [...], 'total_tramos': int, 'distancia_total_km': float}
+    Returns {'tramos': [...], 'total_tramos': int, 'distancia_total_km': float,
+             'matched_references': [{'lat', 'lon', 'type', 'name'}, ...]}
     Each tramo includes a 'risk_analysis' block with 6 structured sections.
     """
     if references is None:
@@ -147,9 +153,14 @@ def segment_route(
 
     n = len(coordinates)
     if n < 2:
-        return {'tramos': [], 'total_tramos': 0, 'distancia_total_km': 0.0}
+        return {
+            'tramos': [],
+            'total_tramos': 0,
+            'distancia_total_km': 0.0,
+            'matched_references': [],
+        }
 
-    # ── 1. Per-segment bearings and distances ─────────────────────────────
+    # ── 1. Per-segment bearings and distances ─────────────────────────────────
     bearings: List[float] = []
     distances: List[float] = []
     for i in range(n - 1):
@@ -166,7 +177,7 @@ def segment_route(
         bearing_changes.append(abs(_angular_diff(bearings[i - 1], bearings[i])))
     smoothed_curve = _smooth(bearing_changes, smooth_window)
 
-    # ── 3. Elevation grade ────────────────────────────────────────────────
+    # ── 3. Elevation grade ─────────────────────────────────────────────
     has_elevation = any(c.get('elevation') is not None for c in coordinates)
     grades: List[float] = []
     for i in range(n - 1):
@@ -201,11 +212,29 @@ def segment_route(
     # ── 5. Map references to nearest segment indices ──────────────────────
     ref_by_seg: Dict[int, List[Dict]] = {}
     caseta_segs: set = set()
+    matched_ref_objects: List[Dict] = []
+
     for ref in references:
+        # Only include references within MAX_REF_DISTANCE_M of the route.
+        # Without this check every reference sent by the client is blindly
+        # assigned to some tramo even if it is hundreds of km away.
+        min_d = min(
+            _haversine_m(ref['lat'], ref['lon'], c['lat'], c['lon'])
+            for c in coordinates
+        )
+        if min_d > MAX_REF_DISTANCE_M:
+            continue
+
         idx = _nearest_segment_idx(coordinates, ref['lat'], ref['lon'])
         ref_by_seg.setdefault(idx, []).append(ref)
         if ref.get('type') == 'caseta':
             caseta_segs.add(idx)
+        matched_ref_objects.append({
+            'lat': ref['lat'],
+            'lon': ref['lon'],
+            'type': ref.get('type', ''),
+            'name': ref.get('name', ''),
+        })
 
     # ── 6. Tramo boundaries ───────────────────────────────────────────────
     # A boundary is placed when:
@@ -296,4 +325,5 @@ def segment_route(
         'tramos': tramos,
         'total_tramos': len(tramos),
         'distancia_total_km': round(sum(distances) / 1000.0, 2),
+        'matched_references': matched_ref_objects,
     }

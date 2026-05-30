@@ -350,3 +350,50 @@ class RouteAnalysisViewSet(viewsets.ViewSet):
         response['Content-Disposition'] = f'attachment; filename="{filename}"'
         response['Access-Control-Expose-Headers'] = 'Content-Disposition'
         return response
+
+    @action(
+        detail=False,
+        methods=['post'],
+        permission_classes=[AllowAny],
+        url_path='extract-indications',
+    )
+    def extract_indications_view(self, request):
+        """
+        Automatically extract road indications (traffic signals, toll booths,
+        fuel stations, speed bumps, etc.) from the OSM Overpass API for the
+        route bounding box.
+
+        Accepts: { "coordinates": [{lat, lon, elevation?}, ...] }
+        Returns: { "indications": [{lat, lon, type, label, metadata?}], "total": int }
+
+        Results are cached in-memory per bounding box for 1 hour.
+        """
+        coordinates = request.data.get('coordinates', [])
+        if not coordinates or len(coordinates) < 2:
+            return Response(
+                {'error': 'coordinates array with at least 2 points required'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Normalise to {lat, lon} dicts
+        normalised = []
+        for c in coordinates:
+            if isinstance(c, dict) and 'lat' in c and 'lon' in c:
+                try:
+                    normalised.append({'lat': float(c['lat']), 'lon': float(c['lon'])})
+                except (TypeError, ValueError):
+                    pass
+
+        if len(normalised) < 2:
+            return Response(
+                {'error': 'coordinates must be objects with numeric lat and lon fields'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        from producto.indication_extractor import extract_indications
+        indications = extract_indications(normalised)
+
+        return Response(
+            {'indications': indications, 'total': len(indications)},
+            status=status.HTTP_200_OK,
+        )
