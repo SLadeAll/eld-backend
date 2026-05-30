@@ -8,14 +8,14 @@ from django.utils import timezone
 from datetime import datetime, timedelta
 
 from producto.models import (
-    Producto, Driver, Trip, Stop, DailyLog, LogEntry, UserProfile
+    Producto, Driver, Trip, Stop, DailyLog, LogEntry, UserProfile, RouteReference
 )
 from producto.api.serilizers import (
     productoSerializer, DriverSerializer, TripSerializer,
     StopSerializer, DailyLogSerializer, LogEntrySerializer,
     UserRegistrationSerializer, UserProfileSerializer,
     UserLoginSerializer, UserLoginResponseSerializer,
-    RouteAnalysisRequestSerializer,
+    RouteAnalysisRequestSerializer, RouteReferenceSerializer,
 )
 from producto.route_analysis import segment_route
 from producto.pdf_generator import build_pdf
@@ -397,3 +397,14 @@ class RouteAnalysisViewSet(viewsets.ViewSet):
             {'indications': indications, 'total': len(indications)},
             status=status.HTTP_200_OK,
         )
+
+    @action(detail=False, methods=['get'], permission_classes=[AllowAny])
+    def references(self, request):
+        """
+        Returns all active route references (casetas, paraderos, gasolineras, rampas)
+        stored in the database. The frontend uses these to filter by proximity to any
+        given ORS route and then sends only the nearby subset to /analyze/.
+        """
+        refs = RouteReference.objects.filter(active=True)
+        serializer = RouteReferenceSerializer(refs, many=True)
+        return Response({'references': serializer.data})

@@ -196,6 +196,26 @@ class DailyLog(models.Model):
         )
 
 
+class RouteReference(models.Model):
+    REFERENCE_TYPES = [
+        ('caseta',     'Caseta de Cobro'),
+        ('paradero',   'Paradero / Área de Descanso'),
+        ('gasolinera', 'Gasolinera'),
+        ('rampa',      'Rampa de Emergencia'),
+    ]
+    lat    = models.FloatField()
+    lon    = models.FloatField()
+    type   = models.CharField(max_length=20, choices=REFERENCE_TYPES)
+    name   = models.CharField(max_length=200)
+    active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ['type', 'name']
+
+    def __str__(self):
+        return f"{self.name} ({self.type})"
+
+
 class LogEntry(models.Model):
     """Individual log entries (driving, on-duty, off-duty, sleeper berth)"""
     LOG_TYPE_CHOICES = [
