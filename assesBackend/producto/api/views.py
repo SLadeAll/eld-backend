@@ -8,7 +8,7 @@ from django.utils import timezone
 from datetime import datetime, timedelta
 
 from producto.models import (
-    Producto, Driver, Trip, Stop, DailyLog, LogEntry, UserProfile, RouteReference
+    Producto, Driver, Trip, Stop, DailyLog, LogEntry, UserProfile, RouteReference, DefaultDestination
 )
 from producto.api.serilizers import (
     productoSerializer, DriverSerializer, TripSerializer,
@@ -16,6 +16,7 @@ from producto.api.serilizers import (
     UserRegistrationSerializer, UserProfileSerializer,
     UserLoginSerializer, UserLoginResponseSerializer,
     RouteAnalysisRequestSerializer, RouteReferenceSerializer,
+    DefaultDestinationSerializer,
 )
 from producto.route_analysis import segment_route
 from producto.pdf_generator import build_pdf
@@ -408,3 +409,14 @@ class RouteAnalysisViewSet(viewsets.ViewSet):
         refs = RouteReference.objects.filter(active=True)
         serializer = RouteReferenceSerializer(refs, many=True)
         return Response({'references': serializer.data})
+
+    @action(detail=False, methods=['get'], permission_classes=[AllowAny], url_path='default-destinations')
+    def default_destinations(self, request):
+        """
+        Returns the predefined destination list for Servimaniobras SA de CV routes
+        originating from Manzanillo, Colima. Each entry includes id, name, lat, lng,
+        and company so the frontend can build a quick-select UI with Haversine distances.
+        """
+        dests = DefaultDestination.objects.filter(active=True)
+        serializer = DefaultDestinationSerializer(dests, many=True)
+        return Response({'destinations': serializer.data})

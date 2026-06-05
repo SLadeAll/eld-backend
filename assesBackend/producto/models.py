@@ -216,6 +216,20 @@ class RouteReference(models.Model):
         return f"{self.name} ({self.type})"
 
 
+class DefaultDestination(models.Model):
+    name    = models.CharField(max_length=200)
+    lat     = models.FloatField()
+    lng     = models.FloatField()
+    company = models.CharField(max_length=200)
+    active  = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ['name']
+
+    def __str__(self):
+        return f"{self.name} — {self.company}"
+
+
 class LogEntry(models.Model):
     """Individual log entries (driving, on-duty, off-duty, sleeper berth)"""
     LOG_TYPE_CHOICES = [
