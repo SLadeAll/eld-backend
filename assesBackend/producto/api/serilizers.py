@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.contrib.auth.models import User
-from producto.models import Producto, Driver, Trip, Stop, DailyLog, LogEntry, UserProfile, RouteReference
+from producto.models import Producto, Driver, Trip, Stop, DailyLog, LogEntry, UserProfile, RouteReference, DefaultDestination
 
 
 # User Registration Serializer
@@ -215,6 +215,12 @@ class RouteReferenceSerializer(serializers.ModelSerializer):
     class Meta:
         model = RouteReference
         fields = ['lat', 'lon', 'type', 'name']
+
+
+class DefaultDestinationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DefaultDestination
+        fields = ['id', 'name', 'lat', 'lng', 'company']
 
 
 class RouteAnalysisRequestSerializer(serializers.Serializer):
