@@ -3,6 +3,7 @@ from typing import Dict, List, Optional
 
 from producto.risk_analysis import generate_risk_analysis, FULL_LOAD, HALF_LOAD
 from producto.emergency_contacts import get_contacts_for_coords
+from producto.highway_lookup import get_highway_segments, get_road_name_for_coords
 
 TRAZO_RECTA = 'Recta'
 TRAZO_RECTA_ASCENDENTE = 'Recta Ascendente'
@@ -139,7 +140,7 @@ def segment_route(
 
     Returns {'tramos': [...], 'total_tramos': int, 'distancia_total_km': float,
              'matched_references': [{'lat', 'lon', 'type', 'name'}, ...]}
-    Each tramo includes 'risk_analysis', 'emergency_contacts', and 'tramo_coords'.
+    Each tramo includes 'risk_analysis', 'emergency_contacts', 'carretera', and 'tramo_coords'.
     """
     if references is None:
         references = []
@@ -167,6 +168,10 @@ def segment_route(
 
     # ── 1b. Adaptive thresholds based on coordinate density ──────────────
     curve_threshold, min_tramo_dist, smooth_window = _adaptive_params(distances)
+
+    # Highway geometry for the whole route bbox — queried once and matched
+    # per-tramo below to report the carretera each tramo runs along.
+    highway_segments = get_highway_segments(coordinates)
 
     # ── 2. Curvature signal: absolute bearing change between segments ──────
     bearing_changes: List[float] = [0.0]
@@ -297,6 +302,7 @@ def segment_route(
         mid_lat = coordinates[mid_idx]['lat']
         mid_lon = coordinates[mid_idx]['lon']
         emergency_contacts = get_contacts_for_coords(mid_lat, mid_lon)
+        carretera = get_road_name_for_coords(mid_lat, mid_lon, highway_segments)
 
         # Load state
         if first_delivery_idx is not None and seg_start >= first_delivery_idx:
@@ -318,6 +324,7 @@ def segment_route(
             'referencias': referencias,
             'distancia_km': round(dist_m / 1000.0, 2),
             'emergency_contacts': emergency_contacts,
+            'carretera': carretera,
             # Actual coordinate geometry for this tramo — used by map_generator
             # to draw the real route polyline and by the frontend Leaflet map.
             'tramo_coords': [
