@@ -306,6 +306,12 @@ def segment_route(
         emergency_contacts = get_contacts_for_coords(mid_lat, mid_lon)
         carretera          = get_road_name_for_coords(mid_lat, mid_lon, highway_segments)
         km_en_carretera    = get_km_marker_for_coords(mid_lat, mid_lon, highway_milestones)
+        # Fallback: use cumulative route km at tramo midpoint when no OSM milestone found.
+        # For Manzanillo-origin routes this approximates the highway km marker closely.
+        km_en_carretera_approx = km_en_carretera is None
+        if km_en_carretera is None:
+            tramo_km_start = sum(distances[:seg_start]) / 1000.0
+            km_en_carretera = round(tramo_km_start + dist_m / 2000.0, 1)
 
         # Load state
         if first_delivery_idx is not None and seg_start >= first_delivery_idx:
@@ -329,6 +335,7 @@ def segment_route(
             'emergency_contacts': emergency_contacts,
             'carretera': carretera,
             'km_en_carretera': km_en_carretera,
+            'km_en_carretera_approx': km_en_carretera_approx,
             # Actual coordinate geometry for this tramo — used by map_generator
             # to draw the real route polyline and by the frontend Leaflet map.
             'tramo_coords': [
