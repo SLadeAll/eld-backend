@@ -202,6 +202,62 @@ def get_road_name_for_coords(lat: float, lon: float, segments: List[Dict]) -> Op
     return ref or name or None
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Calibration helpers — anchor route-km to real highway km markers
+# ─────────────────────────────────────────────────────────────────────────────
+
+def build_route_calibrations(
+    coordinates: List[Dict],
+    distances: List[float],
+    calibration_points: List[Dict],
+    snap_km: float = 5.0,
+) -> List[Dict]:
+    """
+    For each calibration point that lies within snap_km of any route coordinate,
+    compute the cumulative route-km at the nearest route point.
+
+    Returns a list of {'cal': cal_point, 'route_km': float} sorted by route_km.
+
+    coordinates — route points [{lat, lon, ...}, ...]
+    distances   — per-segment haversine distances in metres (len = len(coordinates)-1)
+    """
+    results = []
+    for cal in calibration_points:
+        best_dist = snap_km
+        best_idx  = -1
+        for i, c in enumerate(coordinates):
+            d = _haversine_km(cal['lat'], cal['lon'], c['lat'], c['lon'])
+            if d < best_dist:
+                best_dist = d
+                best_idx  = i
+        if best_idx >= 0:
+            route_km = sum(distances[:best_idx]) / 1000.0
+            results.append({'cal': cal, 'route_km': route_km})
+    return sorted(results, key=lambda x: x['route_km'])
+
+
+def calibrate_highway_km(
+    mid_route_km: float,
+    route_calibrations: List[Dict],
+) -> Tuple[Optional[float], bool]:
+    """
+    Convert a cumulative route-km value to a real highway km using the nearest
+    calibration anchor.
+
+    Returns (highway_km, is_approximate):
+      - is_approximate = False  → anchored to a verified reference point
+      - is_approximate = True   → no calibration available (raw route km)
+    """
+    if not route_calibrations:
+        return None, True
+
+    # Pick the calibration anchor closest (by route km) to the query point.
+    best = min(route_calibrations, key=lambda c: abs(c['route_km'] - mid_route_km))
+    highway_km = round(best['cal']['km'] + (mid_route_km - best['route_km']), 1)
+    return highway_km, False
+
+
+
 def get_km_marker_for_coords(lat: float, lon: float, milestones: List[Dict]) -> Optional[float]:
     """
     Return the km value (float) of the nearest highway milestone node within

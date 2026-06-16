@@ -3,7 +3,8 @@ from typing import Dict, List, Optional
 
 from producto.risk_analysis import generate_risk_analysis, FULL_LOAD, HALF_LOAD
 from producto.emergency_contacts import get_contacts_for_coords
-from producto.highway_lookup import get_route_highway_data, get_road_name_for_coords, get_km_marker_for_coords
+from producto.highway_lookup import get_route_highway_data, get_road_name_for_coords, get_km_marker_for_coords, build_route_calibrations, calibrate_highway_km
+from producto.highway_km_calibration import CALIBRATION_POINTS, CALIBRATION_SNAP_KM
 
 TRAZO_RECTA = 'Recta'
 TRAZO_RECTA_ASCENDENTE = 'Recta Ascendente'
@@ -171,9 +172,15 @@ def segment_route(
 
     # Highway geometry + km-markers queried once for the whole route bbox.
     # Matched per-tramo midpoint below to report carretera name and km marker.
-    hw_data           = get_route_highway_data(coordinates)
-    highway_segments  = hw_data['segments']
+    hw_data            = get_route_highway_data(coordinates)
+    highway_segments   = hw_data['segments']
     highway_milestones = hw_data['milestones']
+
+    # Build calibration anchors: snap verified km-marker reference points to the
+    # route so every tramo can report an accurate highway km.
+    route_calibrations = build_route_calibrations(
+        coordinates, distances, CALIBRATION_POINTS, CALIBRATION_SNAP_KM
+    )
 
     # ── 2. Curvature signal: absolute bearing change between segments ──────
     bearing_changes: List[float] = [0.0]
@@ -305,13 +312,20 @@ def segment_route(
         mid_lon = coordinates[mid_idx]['lon']
         emergency_contacts = get_contacts_for_coords(mid_lat, mid_lon)
         carretera          = get_road_name_for_coords(mid_lat, mid_lon, highway_segments)
-        km_en_carretera    = get_km_marker_for_coords(mid_lat, mid_lon, highway_milestones)
-        # Fallback: use cumulative route km at tramo midpoint when no OSM milestone found.
-        # For Manzanillo-origin routes this approximates the highway km marker closely.
-        km_en_carretera_approx = km_en_carretera is None
+
+        # Priority 1: verified km-marker reference from calibration table (most accurate).
+        mid_route_km = sum(distances[:seg_start]) / 1000.0 + dist_m / 2000.0
+        km_en_carretera, km_en_carretera_approx = calibrate_highway_km(
+            mid_route_km, route_calibrations
+        )
+        # Priority 2: OSM milestone node (accurate but sparse coverage).
         if km_en_carretera is None:
-            tramo_km_start = sum(distances[:seg_start]) / 1000.0
-            km_en_carretera = round(tramo_km_start + dist_m / 2000.0, 1)
+            osm_km = get_km_marker_for_coords(mid_lat, mid_lon, highway_milestones)
+            if osm_km is not None:
+                km_en_carretera, km_en_carretera_approx = osm_km, False
+        # Priority 3: raw route-km (always available, approximate).
+        if km_en_carretera is None:
+            km_en_carretera, km_en_carretera_approx = round(mid_route_km, 1), True
 
         # Load state
         if first_delivery_idx is not None and seg_start >= first_delivery_idx:
