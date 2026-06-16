@@ -93,6 +93,9 @@ def _overpass_query(min_lat: float, min_lon: float,
     (
       way["highway"~"motorway|trunk|primary"]["ref"]({bbox});
       node["highway"="milestone"]({bbox});
+      node["milestone:type"]({bbox});
+      node["distance"][!"boundary"]({bbox});
+      node["ref"~"^[Kk][0-9]"]["highway"]({bbox});
     );
     out geom tags;
     """
