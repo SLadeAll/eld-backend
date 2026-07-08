@@ -21,6 +21,8 @@ from producto.api.serilizers import (
 from producto.route_analysis import segment_route
 from producto.pdf_generator import build_pdf
 from producto.pdf_generator_summary import build_summary_pdf
+from producto.pptx_generator import build_pptx
+from producto.pptx_generator_summary import build_summary_pptx
 
 
 class ProductoViewSet(viewsets.ModelViewSet):
@@ -385,6 +387,78 @@ class RouteAnalysisViewSet(viewsets.ViewSet):
         filename  = f"resumen_riesgos_{safe_name}_{date_str}.pdf" if safe_name else f"resumen_riesgos_{date_str}.pdf"
 
         response = HttpResponse(pdf_bytes, content_type='application/pdf')
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        response['Access-Control-Expose-Headers'] = 'Content-Disposition'
+        return response
+
+    @action(detail=False, methods=['post'], permission_classes=[AllowAny], url_path='export-pptx')
+    def export_pptx(self, request):
+        """
+        Same payload as /export-pdf/.  Returns a .pptx file with one slide per tramo:
+        title slide + per-tramo slides (header, map, PROCESO 3-col, emergency strip).
+        """
+        serializer = RouteAnalysisRequestSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        coordinates    = serializer.validated_data['coordinates']
+        references     = serializer.validated_data.get('references', [])
+        vehicle_config = serializer.validated_data.get('vehicle_config', {})
+        route_label    = request.data.get('route_label', '')
+
+        result = segment_route(coordinates, references, vehicle_config)
+        tramos = result.get('tramos', [])
+
+        try:
+            pptx_bytes = build_pptx(tramos, route_label=route_label)
+        except Exception as exc:
+            return Response(
+                {'error': f'Error generando PPTX: {exc}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        date_str  = datetime.now().strftime('%Y%m%d_%H%M')
+        safe_name = ''.join(c if c.isalnum() or c in '-_' else '_' for c in route_label)[:40]
+        filename  = f"analisis_riesgos_{safe_name}_{date_str}.pptx" if safe_name else f"analisis_riesgos_{date_str}.pptx"
+
+        ct = 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+        response = HttpResponse(pptx_bytes, content_type=ct)
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        response['Access-Control-Expose-Headers'] = 'Content-Disposition'
+        return response
+
+    @action(detail=False, methods=['post'], permission_classes=[AllowAny], url_path='export-pptx-summary')
+    def export_pptx_summary(self, request):
+        """
+        Same payload as /export-pdf-summary/.  Returns a .pptx grouped by state:
+        title slide + overview map + per-state slides.
+        """
+        serializer = RouteAnalysisRequestSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        coordinates    = serializer.validated_data['coordinates']
+        references     = serializer.validated_data.get('references', [])
+        vehicle_config = serializer.validated_data.get('vehicle_config', {})
+        route_label    = request.data.get('route_label', '')
+
+        result = segment_route(coordinates, references, vehicle_config)
+        tramos = result.get('tramos', [])
+
+        try:
+            pptx_bytes = build_summary_pptx(tramos, route_label=route_label)
+        except Exception as exc:
+            return Response(
+                {'error': f'Error generando PPTX resumen: {exc}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        date_str  = datetime.now().strftime('%Y%m%d_%H%M')
+        safe_name = ''.join(c if c.isalnum() or c in '-_' else '_' for c in route_label)[:40]
+        filename  = f"resumen_riesgos_{safe_name}_{date_str}.pptx" if safe_name else f"resumen_riesgos_{date_str}.pptx"
+
+        ct = 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+        response = HttpResponse(pptx_bytes, content_type=ct)
         response['Content-Disposition'] = f'attachment; filename="{filename}"'
         response['Access-Control-Expose-Headers'] = 'Content-Disposition'
         return response

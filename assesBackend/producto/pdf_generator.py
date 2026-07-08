@@ -24,12 +24,12 @@ from producto.map_generator import get_segment_map
 
 logger = logging.getLogger(__name__)
 
-# ── Palette ──────────────────────────────────────────────────────────────────────────────────
-NAVY     = colors.HexColor('#1a1a2e')
-PURPLE   = colors.HexColor('#6d28d9')
-RED_ACC  = colors.HexColor('#e63946')
-EMRG_RED = colors.HexColor('#991b1b')
-LIGHT_B  = colors.HexColor('#eff6ff')
+# ── Palette — Rojo vivo + Azul eléctrico ─────────────────────────────────────────────────────
+NAVY     = colors.HexColor('#1e40af')   # deep blue  — table headers, cover title
+PURPLE   = colors.HexColor('#2563eb')   # electric blue — borders, HR lines, headings
+RED_ACC  = colors.HexColor('#ef4444')   # vivid red  — half-load warning
+EMRG_RED = colors.HexColor('#dc2626')   # red dark   — emergency header bg / text
+LIGHT_B  = colors.HexColor('#dbeafe')   # light blue — tramo header band (full load)
 STRIPE   = colors.HexColor('#f0f4f8')
 GREY     = colors.HexColor('#9ca3af')
 WHITE    = colors.white
@@ -50,7 +50,7 @@ HEADERS = ['#', 'Área', 'Dinámica', 'Amenazas', 'Vigilancia', 'Restricción', 
 EMRG_CAT_LABELS = [
     ('ambulancia',        'Ambulancias / Cruz Roja', colors.HexColor('#fff1f2')),
     ('hospital',          'Hospitales',              colors.HexColor('#fefce8')),
-    ('sedena',            'SEDENA / Ejército',       colors.HexColor('#eff6ff')),
+    ('sedena',            'SEDENA / Ejército',       colors.HexColor('#dbeafe')),
     ('guardia_nacional',  'Guardia Nacional',        colors.HexColor('#f0fdf4')),
     ('policia_estatal',   'Policía Estatal (SSP)',   colors.HexColor('#faf5ff')),
     ('policia_municipal', 'Policía Municipal',       colors.HexColor('#fff7ed')),
@@ -177,7 +177,7 @@ def _build_emergency_table(emergency_contacts: dict, cell_style):
 
 
 def _load_state_color(load_state):
-    return LIGHT_B if load_state == 'Carga Completa' else colors.HexColor('#faf5ff')
+    return LIGHT_B if load_state == 'Carga Completa' else colors.HexColor('#fee2e2')
 
 
 def build_pdf(tramos: list, route_label: str = '') -> bytes:
