@@ -20,6 +20,7 @@ from producto.api.serilizers import (
 )
 from producto.route_analysis import segment_route
 from producto.pdf_generator import build_pdf
+from producto.pdf_generator_summary import build_summary_pdf
 
 
 class ProductoViewSet(viewsets.ModelViewSet):
@@ -346,6 +347,42 @@ class RouteAnalysisViewSet(viewsets.ViewSet):
         date_str  = datetime.now().strftime('%Y%m%d_%H%M')
         safe_name = ''.join(c if c.isalnum() or c in '-_' else '_' for c in route_label)[:40]
         filename  = f"analisis_riesgos_{safe_name}_{date_str}.pdf" if safe_name else f"analisis_riesgos_{date_str}.pdf"
+
+        response = HttpResponse(pdf_bytes, content_type='application/pdf')
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        response['Access-Control-Expose-Headers'] = 'Content-Disposition'
+        return response
+
+    @action(detail=False, methods=['post'], permission_classes=[AllowAny], url_path='export-pdf-summary')
+    def export_pdf_summary(self, request):
+        """
+        Same payload as /export-pdf/ but returns a condensed PDF grouped by state:
+        cover → overview map → one section per state
+        (segment map + 3-col PROCESO summary + emergency contacts).
+        """
+        serializer = RouteAnalysisRequestSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        coordinates    = serializer.validated_data['coordinates']
+        references     = serializer.validated_data.get('references', [])
+        vehicle_config = serializer.validated_data.get('vehicle_config', {})
+        route_label    = request.data.get('route_label', '')
+
+        result = segment_route(coordinates, references, vehicle_config)
+        tramos = result.get('tramos', [])
+
+        try:
+            pdf_bytes = build_summary_pdf(tramos, route_label=route_label)
+        except Exception as exc:
+            return Response(
+                {'error': f'Error generando PDF resumen: {exc}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        date_str  = datetime.now().strftime('%Y%m%d_%H%M')
+        safe_name = ''.join(c if c.isalnum() or c in '-_' else '_' for c in route_label)[:40]
+        filename  = f"resumen_riesgos_{safe_name}_{date_str}.pdf" if safe_name else f"resumen_riesgos_{date_str}.pdf"
 
         response = HttpResponse(pdf_bytes, content_type='application/pdf')
         response['Content-Disposition'] = f'attachment; filename="{filename}"'
